@@ -619,6 +619,18 @@ createFrameFile(struct frameset *f, FILE * f1, Buffer *current, int level,
 				}
 			    }
 			}
+#ifdef USE_SCRIPT
+			else if (pre_mode & RB_NOSCRIPT) {
+			    q = tok->ptr;
+			    if ((tag = parse_tag(&q, FALSE)) &&
+				tag->tagid == end_tag) {
+				pre_mode = 0;
+				end_tag = 0;
+				goto proc_normal;
+			    }
+			    is_tag = FALSE;
+			}
+#endif
 		    }
 
 		  proc_normal:
@@ -738,6 +750,8 @@ createFrameFile(struct frameset *f, FILE * f1, Buffer *current, int level,
 			case HTML_SCRIPT:
 			    pre_mode = RB_SCRIPT;
 			    end_tag = HTML_N_SCRIPT;
+			    parsedtag_set_value(tag,
+						ATTR_FRAMENAME, s_target);
 			    break;
 			case HTML_STYLE:
 			    pre_mode = RB_STYLE;
@@ -758,6 +772,12 @@ createFrameFile(struct frameset *f, FILE * f1, Buffer *current, int level,
 			    end_tag = MAX_HTMLTAG;
 			    fputs("<PRE_PLAIN>", f1);
 			    goto token_end;
+#ifdef USE_SCRIPT
+			case HTML_NOSCRIPT:
+			    pre_mode = RB_NOSCRIPT;
+			    end_tag = HTML_N_NOSCRIPT;
+			    break;
+#endif
 			default:
 			    break;
 			}
@@ -850,6 +870,10 @@ createFrameFile(struct frameset *f, FILE * f1, Buffer *current, int level,
 		    else if (pre_mode & RB_STYLE)
 			fputs("</STYLE>\n", f1);
 		}
+#ifdef USE_SCRIPT
+		else if (pre_mode & RB_NOSCRIPT)
+		    fputs("</NOSCRIPT>\n", f1);
+#endif
 		while (t_stack--)
 		    fputs("</TABLE>\n", f1);
 		UFclose(&f2);

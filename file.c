@@ -50,7 +50,7 @@ static JMP_BUF AbortLoading;
 static struct table *tables[MAX_TABLE];
 static struct table_mode table_mode[MAX_TABLE];
 
-#if defined(USE_M17N) || defined(USE_IMAGE)
+#if defined(USE_M17N) || defined(USE_IMAGE) || defined(USE_SCRIPT)
 static ParsedURL *cur_baseURL = NULL;
 #endif
 #ifdef USE_M17N
@@ -1794,6 +1794,18 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    t = "news:group";
 	    break;
 #endif
+#ifdef USE_JAVASCRIPT
+	case SCM_JAVASCRIPT:
+	    if (!use_script)
+		return NULL;
+	    if (!Currentbuf)
+		return NULL;
+	    script_eval(Currentbuf, "JavaScript", pu.file);
+	    if (Currentbuf->location)
+		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
+	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
+	    return NO_BUFFER;
+#endif
 	case SCM_UNKNOWN:
 #ifdef USE_EXTERNAL_URI_LOADER
 	    tmp = searchURIMethods(&pu);
@@ -2228,6 +2240,11 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
     }
 #endif
 
+#ifdef USE_SCRIPT
+    if (flag & RG_SCRIPT)
+	proc = loadBuffer;
+    else
+#endif
     if (is_html_type(t))
 	proc = loadHTMLBuffer;
     else if (is_plain_text_type(t))
@@ -3273,7 +3290,7 @@ feed_title(char *str)
 Str
 process_img(struct parsed_tag *tag, int width)
 {
-    char *p, *q, *r, *r2 = NULL, *s, *t;
+    char *p, *q, *r, *r2 = NULL, *s, *t, *id;
 #ifdef USE_IMAGE
     int w, i, nw, ni = 1, n, w0 = -1, i0 = -1;
     int align, xoffset, yoffset, top, bottom, ismap = 0;
@@ -3289,6 +3306,10 @@ process_img(struct parsed_tag *tag, int width)
     p = url_encode(remove_space(p), cur_baseURL, cur_document_charset);
     q = NULL;
     parsedtag_get_value(tag, ATTR_ALT, &q);
+    id = NULL;
+    parsedtag_get_value(tag, ATTR_ID, &id);
+    if (id == NULL)
+	parsedtag_get_value(tag, ATTR_NAME, &id);
     if (!pseudoInlines && (q == NULL || (*q == '\0' && ignore_null_img_alt)))
 	return tmp;
     t = q;
@@ -3492,6 +3513,8 @@ process_img(struct parsed_tag *tag, int width)
 	    Strcat_charp(tmp, " ismap");
     }
 #endif
+    if (id != NULL)
+	Strcat(tmp, Sprintf(" name=\"%s\"", id));
     Strcat_charp(tmp, ">");
     if (q != NULL && *q == '\0' && ignore_null_img_alt)
 	q = NULL;
@@ -4145,6 +4168,130 @@ feed_textarea(char *str)
 	    Strcat_char(textarea_str[n_textarea], *(str++));
     }
 }
+
+#ifdef USE_SCRIPT
+Str
+process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
+{
+    char *p = "JavaScript", *q, *t;
+    struct stat st;
+    int wait_st;
+
+    if (frame_source)
+	return NULL;
+
+    parsedtag_get_value(tag, ATTR_LANGUAGE, &p);
+    h_env->cur_script_lang = p;
+    h_env->cur_script_str = Strnew();
+    t = NULL;
+    if (parsedtag_get_value(tag, ATTR_FRAMENAME, &t)) {
+	h_env->script_target = t;
+    }
+    q = NULL;
+    if (parsedtag_get_value(tag, ATTR_SRC, &q)) {
+	FILE *f;
+	Str s;
+	char *file;
+	pid_t pid;
+
+	file = tmpfname(TMPF_DFL, ".js")->ptr;
+	if ((pid = fork()) == 0) {
+	    Buffer *b;
+	    ParsedURL u;
+
+	    setup_child(FALSE, 0, -1);
+	    q = remove_space(q);
+#ifdef JP_CHARSET
+	    parseURL2(conv(q, InnerCode, cur_document_code)->ptr, &u, cur_baseURL);
+	    UseContentCharset = TRUE;
+	    UseAutoDetect = TRUE;
+#else
+	    parseURL2(q, &u, cur_baseURL);
+#endif
+	    b = loadGeneralFile(parsedURL2Str(&u)->ptr, cur_baseURL, NULL, RG_SCRIPT, NULL);
+	    if (b) {
+		if (b->real_type) {
+		    f = fopen(file, "w");
+		    if (f) {
+			saveBuffer(b, f, TRUE);
+			fclose(f);
+		    }
+		}
+		discardBuffer(b);
+	    }
+	    exit(0);
+	} else if (pid < 0) {
+	    return NULL;
+	}
+
+#ifdef HAVE_WAITPID
+	waitpid(pid, &wait_st, 0);
+#else
+	wait(&wait_st);
+#endif
+	if (stat(file, &st))
+	    return NULL;
+
+	f = fopen(file, "r");
+	if (f) {
+	    char buf[256];
+	    int n;
+	    while (n = fread(buf, sizeof(char), 256, f)) {
+		Strcat_charp_n(h_env->cur_script_str, buf, n);
+	    }
+	    fclose(f);
+	}
+	unlink(file);
+
+	s = process_n_script(h_env);
+	if (s == NULL) {
+	    s = Strnew();
+	}
+	return s;
+    }
+    return NULL;
+}
+
+Str
+process_n_script(struct html_feed_environ *h_env)
+{
+    Buffer *buf;
+    Str tmp = NULL;
+
+    if (! use_script)
+	return NULL;
+    if (h_env != NULL &&
+	h_env->cur_script_str != NULL && h_env->cur_script_str->length) {
+	char *p;
+	buf = newBuffer(INIT_BUFFER_WIDTH);
+	p = h_env->cur_script_str->ptr;
+	while (IS_SPACE(*p)) p++;
+	if (! strncmp(p, "<!--", 4))
+	    while (!IS_ENDL(*p)) p++;
+	buf->script_interp = h_env->script_interp;
+	buf->script_lang = h_env->script_lang;
+	buf->script_target = h_env->script_target;
+	buf->currentURL = *cur_baseURL;
+	tmp = script_eval(buf, h_env->cur_script_lang, p);
+	h_env->script_interp = buf->script_interp;
+	h_env->script_lang = buf->script_lang;
+	h_env->script_target = buf->script_target;
+	if (buf->location) {
+	    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
+		html_quote(buf->location));
+	}
+    }
+    h_env->cur_script_str = NULL;
+    return tmp;
+}
+
+void
+feed_script(char *str, struct html_feed_environ *h_env)
+{
+    if (str != NULL && h_env != NULL && h_env->cur_script_str != NULL)
+	Strcat_charp(h_env->cur_script_str, str);
+}
+#endif
 
 Str
 process_hr(struct parsed_tag *tag, int width, int indent_width)
@@ -4993,6 +5140,13 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	obuf->end_tag = 0;
 	return 1;
     case HTML_SCRIPT:
+#ifdef USE_SCRIPT
+	if (use_script) {
+	    tmp = process_script(tag, h_env);
+	    if (tmp != NULL)
+		HTMLlineproc1(tmp->ptr, h_env);
+	}
+#endif
 	obuf->flag |= RB_SCRIPT;
 	obuf->end_tag = HTML_N_SCRIPT;
 	return 1;
@@ -5003,7 +5157,28 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_N_SCRIPT:
 	obuf->flag &= ~RB_SCRIPT;
 	obuf->end_tag = 0;
+#ifdef USE_SCRIPT
+	if (use_script) {
+	    tmp = process_n_script(h_env);
+	    if (tmp != NULL)
+		HTMLlineproc1(tmp->ptr, h_env);
+	}
+#endif
 	return 1;
+#ifdef USE_SCRIPT
+    case HTML_NOSCRIPT:
+	if (use_script) {
+	    obuf->flag |= RB_NOSCRIPT;
+	    obuf->end_tag = HTML_N_NOSCRIPT;
+	}
+        return 1;
+    case HTML_N_NOSCRIPT:
+	if (use_script) {
+	    obuf->flag &= ~RB_NOSCRIPT;
+	    obuf->end_tag = 0;
+	}
+	return 1;
+#endif
     case HTML_N_STYLE:
 	obuf->flag &= ~RB_STYLE;
 	obuf->end_tag = 0;
@@ -5177,6 +5352,9 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	tables[obuf->table_level]->real_width = width;
 	tables[obuf->table_level]->total_width = 0;
 #endif
+#ifdef USE_SCRIPT
+	tables[obuf->table_level]->h_env = h_env;
+#endif
 	return 1;
     case HTML_N_TABLE:
 	/* should be processed in HTMLlineproc() */
@@ -5349,7 +5527,7 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	}
 	return 1;
     case HTML_BASE:
-#if defined(USE_M17N) || defined(USE_IMAGE)
+#if defined(USE_M17N) || defined(USE_IMAGE) || defined(USE_SCRIPT)
 	p = NULL;
 	if (parsedtag_get_value(tag, ATTR_HREF, &p)) {
 	    cur_baseURL = New(ParsedURL);
@@ -6492,6 +6670,9 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		if (str[1] && REALLY_THE_BEGINNING_OF_A_TAG(str))
 		    is_tag = TRUE;
 		else if (!(pre_mode & (RB_PLAIN | RB_INTXTA | RB_INSELECT |
+#ifdef USE_SCRIPT
+				       RB_NOSCRIPT |
+#endif
 				       RB_SCRIPT | RB_STYLE | RB_TITLE))) {
 		    line = Strnew_m_charp(str + 1, line, NULL)->ptr;
 		    str = "&lt;";
@@ -6506,6 +6687,9 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 	}
 
 	if (pre_mode & (RB_PLAIN | RB_INTXTA | RB_INSELECT | RB_SCRIPT |
+#ifdef USE_SCRIPT
+			RB_NOSCRIPT |
+#endif
 			RB_STYLE | RB_TITLE)) {
 	    if (is_tag) {
 		p = str;
@@ -6523,6 +6707,12 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		feed_title(str);
 		continue;
 	    }
+
+#ifdef USE_SCRIPT
+	    if (pre_mode & RB_NOSCRIPT)
+		continue;
+#endif
+
 	    /* select */
 	    if (pre_mode & RB_INSELECT) {
 		if (obuf->table_level >= 0)
@@ -6544,9 +6734,18 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		feed_textarea(str);
 		continue;
 	    }
+#ifdef USE_SCRIPT
+	    /* script */
+	    if (pre_mode & RB_SCRIPT) {
+		if (use_script)
+		    feed_script(str, h_env);
+		continue;
+	    }
+#else
 	    /* script */
 	    if (pre_mode & RB_SCRIPT)
 		continue;
+#endif
 	    /* style */
 	    if (pre_mode & RB_STYLE)
 		continue;
@@ -7160,7 +7359,11 @@ completeHTMLstream(struct html_feed_environ *h_env, struct readbuffer *obuf)
     while (obuf->table_level >= 0) {
 	int tmp = obuf->table_level;
 	table_mode[obuf->table_level].pre_mode
-	    &= ~(TBLM_SCRIPT | TBLM_STYLE | TBLM_PLAIN);
+	    &= ~(TBLM_SCRIPT |
+#ifdef USE_SCRIPT
+		 TBLM_NOSCRIPT |
+#endif
+		 TBLM_STYLE | TBLM_PLAIN);
 	HTMLlineproc1("</table>", h_env);
 	if (obuf->table_level >= tmp)
 	    break;
@@ -7320,11 +7523,18 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 
     init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, newBuf->width, 0);
 
+#ifdef USE_SCRIPT
+    htmlenv1.cur_script_str = NULL;
+    htmlenv1.cur_script_lang = NULL;
+    htmlenv1.script_interp = NULL;
+    htmlenv1.script_lang = NULL;
+    htmlenv1.script_target = NULL;
+#endif
     if (w3m_halfdump)
 	htmlenv1.f = stdout;
     else
 	htmlenv1.buf = newTextLineList();
-#if defined(USE_M17N) || defined(USE_IMAGE)
+#if defined(USE_M17N) || defined(USE_IMAGE) || defined(USE_SCRIPT)
     cur_baseURL = baseURL(newBuf);
 #endif
 
@@ -7366,8 +7576,10 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 	    }
 	}
 #endif				/* USE_NNTP */
-	if (src)
+	if (src) {
 	    Strfputs(lineBuf2, src);
+	    fflush(src);
+	}
 	linelen += lineBuf2->length;
 	if (w3m_dump & DUMP_EXTRA)
 	    printf("W3m-in-progress: %s\n", convert_size2(linelen, current_content_length, TRUE));
@@ -7424,6 +7636,11 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 #ifdef USE_M17N
     if (!(newBuf->bufferprop & BP_FRAME))
 	newBuf->document_charset = charset;
+#endif
+#ifdef USE_SCRIPT
+    newBuf->script_interp = htmlenv1.script_interp;
+    newBuf->script_lang = htmlenv1.script_lang;
+    newBuf->script_target = htmlenv1.script_target;
 #endif
 #ifdef USE_IMAGE
     newBuf->image_flag = image_flag;

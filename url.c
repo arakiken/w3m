@@ -74,7 +74,12 @@ static int
     0,				/* mailto - not defined */
 #ifdef USE_SSL
     443,			/* https */
+#else
+    0,
 #endif				/* USE_SSL */
+#ifdef USE_JAVASCRIPT
+    0,				/* javascript - not defined */
+#endif
 };
 
 struct cmdtable schemetable[] = {
@@ -94,7 +99,12 @@ struct cmdtable schemetable[] = {
 #endif
 #ifdef USE_SSL
     {"https", SCM_HTTPS},
+#else
+    {"???", SCM_UNKNOWN},
 #endif				/* USE_SSL */
+#ifdef USE_JAVASCRIPT
+    {"javascript", SCM_JAVASCRIPT},
+#endif
     {NULL, SCM_UNKNOWN},
 };
 
@@ -834,6 +844,12 @@ parseURL(char *url, ParsedURL *p_url, ParsedURL *current)
 	/* the url doesn't begin with '//' */
 	goto analyze_file;
     }
+#ifdef USE_JAVASCRIPT
+    if (p_url->scheme == SCM_JAVASCRIPT) {
+	p_url->file = allocStr(p, -1);
+	return;
+    }
+#endif
     /* scheme part has been found */
     if (p_url->scheme == SCM_UNKNOWN) {
 	p_url->file = allocStr(url, -1);
@@ -902,6 +918,7 @@ parseURL(char *url, ParsedURL *p_url, ParsedURL *current)
 			       COPYPATH_SPC_IGNORE | COPYPATH_LOWERCASE);
 	tmp = Strnew_charp_n(q, p - q);
 	p_url->port = atoi(tmp->ptr);
+	p_url->has_port = 1;
 	/* *p is one of ['\0', '/', '?', '#'] */
 	break;
     case '@':
@@ -1058,6 +1075,7 @@ copyParsedURL(ParsedURL *p, const ParsedURL *q)
     p->scheme = q->scheme;
     p->port = q->port;
     p->is_nocache = q->is_nocache;
+    p->has_port = q->has_port;
     p->user = ALLOC_STR(q->user);
     p->pass = ALLOC_STR(q->pass);
     p->host = ALLOC_STR(q->host);
@@ -1077,6 +1095,10 @@ parseURL2(char *url, ParsedURL *pu, ParsedURL *current)
     parseURL(url, pu, current);
 #ifndef USE_W3MMAILER
     if (pu->scheme == SCM_MAILTO)
+	return;
+#endif
+#ifdef USE_JAVASCRIPT
+    if (pu->scheme == SCM_JAVASCRIPT)
 	return;
 #endif
     if (pu->scheme == SCM_DATA)
@@ -1259,7 +1281,12 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
 	"news", "news", "data", "mailto",
 #ifdef USE_SSL
 	"https",
+#else
+	"???",
 #endif				/* USE_SSL */
+#ifdef USE_JAVASCRIPT
+	"javascript",
+#endif
     };
 
     if (pu->scheme == SCM_MISSING) {
@@ -1292,6 +1319,12 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
 	return tmp;
     }
 #endif
+#ifdef USE_JAVASCRIPT
+    if (pu->scheme == SCM_JAVASCRIPT) {
+	Strcat_charp(tmp, pu->file);
+	return tmp;
+    }
+#endif
     if (pu->scheme == SCM_DATA) {
 	Strcat_charp(tmp, pu->file);
 	return tmp;
@@ -1312,7 +1345,7 @@ _parsedURL2Str(ParsedURL *pu, int pass, int user, int label)
     }
     if (pu->host) {
 	Strcat_charp(tmp, pu->host);
-	if (pu->port != DefaultPort[pu->scheme]) {
+	if (pu->has_port) {
 	    Strcat_char(tmp, ':');
 	    Strcat(tmp, Sprintf("%d", pu->port));
 	}
@@ -1431,7 +1464,7 @@ otherinfo(ParsedURL *target, ParsedURL *current, char *referer)
     if (target->host) {
 	Strcat_charp(s, "Host: ");
 	Strcat_charp(s, target->host);
-	if (target->port != DefaultPort[target->scheme])
+	if (target->has_port)
 	    Strcat(s, Sprintf(":%d", target->port));
 	Strcat_charp(s, "\r\n");
     }
@@ -1990,6 +2023,12 @@ openURL(char *url, ParsedURL *pu, ParsedURL *current,
 	uf.stream = newStrStream(tmp);
 	uf.guess_type = (*p != '\0') ? p : "text/plain";
 	return uf;
+#ifdef USE_JAVASCRIPT
+    case SCM_JAVASCRIPT:
+	uf.stream = NULL;
+	uf.scheme = SCM_JAVASCRIPT;
+	return uf;
+#endif
     case SCM_UNKNOWN:
     default:
 	return uf;

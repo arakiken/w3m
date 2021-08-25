@@ -36,6 +36,12 @@
 #undef USE_BG_COLOR
 #endif
 
+#ifdef USE_JAVASCRIPT
+#ifndef USE_SCRIPT
+#define USE_SCRIPT
+#endif
+#endif
+
 #include "ctrlcode.h"
 #include "html.h"
 #include <gc.h>
@@ -509,6 +515,12 @@ typedef struct _Buffer {
 #ifdef USE_SSL
     char *ssl_certificate;
 #endif
+#ifdef USE_SCRIPT
+    void *script_interp;
+    char *script_lang;
+    char *location;
+    char *script_target;
+#endif
     char image_flag;
     char image_loaded;
     char need_reshape;
@@ -675,6 +687,9 @@ struct readbuffer {
 #define RB_DEL		0x100000
 #define RB_S		0x200000
 #define RB_HTML5	0x400000
+#ifdef USE_SCRIPT
+#define RB_NOSCRIPT	0x800000
+#endif
 
 #define RB_GET_ALIGN(obuf) ((obuf)->flag&RB_ALIGN)
 #define RB_SET_ALIGN(obuf,align) do{(obuf)->flag &= ~RB_ALIGN; (obuf)->flag |= (align); }while(0)
@@ -715,6 +730,7 @@ struct readbuffer {
 #define RG_NOCACHE   1
 #define RG_FRAME     2
 #define RG_FRAME_SRC 4
+#define RG_SCRIPT    8
 
 struct html_feed_environ {
     struct readbuffer *obuf;
@@ -729,6 +745,13 @@ struct html_feed_environ {
     int envc_real;
     char *title;
     int blank_lines;
+#ifdef USE_SCRIPT
+    Str cur_script_str;
+    char *cur_script_lang;
+    void *script_interp;
+    char *script_lang;
+    char *script_target;
+#endif
 };
 
 #ifdef USE_COOKIE
@@ -1263,6 +1286,13 @@ typedef struct _AlarmEvent {
     int cmd;
     void *data;
 } AlarmEvent;
+#endif
+
+#ifdef USE_SCRIPT
+global int use_script init(FALSE);
+global int enable_js_windowopen init(FALSE);
+global int confirm_js_windowclose init(TRUE);
+global Buffer *scriptBuffer init(NULL);
 #endif
 
 /* 

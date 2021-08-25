@@ -79,6 +79,7 @@
 #undef X_DISPLAY_MISSING
 #undef USE_IMLIB2
 #undef USE_XFACE
+#undef USE_JAVASCRIPT
 #undef USE_DICT
 #undef USE_HISTORY
 #undef FORMAT_NICE

@@ -191,6 +191,9 @@ fversion(FILE * f)
 #ifdef USE_MIGEMO
 	    ",migemo"
 #endif
+#ifdef USE_JAVASCRIPT
+	    ",javascript"
+#endif
 	);
 }
 
@@ -2961,6 +2964,10 @@ loadLink(char *url, char *target, char *referer, FormList *request)
 	referer = NO_REFERER;
     if (referer == NULL)
 	referer = parsedURL2RefererStr(&Currentbuf->currentURL)->ptr;
+#ifdef USE_SCRIPT
+    if (Currentbuf)
+	Currentbuf->script_target = target;
+#endif
     buf = loadGeneralFile(url, baseURL(Currentbuf), referer, flag, request);
     if (buf == NULL) {
 	char *emsg = Sprintf("Can't load %s", url)->ptr;
@@ -6958,3 +6965,62 @@ DEFUN(cursorBottom, CURSOR_BOTTOM, "Move cursor to the bottom of the screen")
     arrangeLine(Currentbuf);
     displayBuffer(Currentbuf, B_NORMAL);
 }
+
+
+#ifdef USE_SCRIPT
+void
+jWindowOpen(Buffer *buf, char *url, char *target)
+{
+    union frameset_element *f_element = NULL;
+    Buffer *b;
+    ParsedURL u;
+    int i, t = FALSE;
+
+    if (CurrentTab == NULL || Currentbuf == NULL)
+	return;
+
+    if (!strcasecmp(target, "_top")) {
+	/* open on frame top */
+	;
+    } else if (!strcasecmp(target, "_self")) {
+	b = Currentbuf->linkBuffer[LB_N_FRAME];
+	if (b && b->frameset && buf->script_target) {
+	    f_element = search_frame(b->frameset, buf->script_target);
+	    if (f_element) {
+		/* FIXME */
+		/* target = buf->script_target; */
+	    }
+	}
+    } else if (check_target && open_tab_blank && target &&
+	(!strcasecmp(target, "_new") || !strcasecmp(target, "_blank"))) {
+	t = TRUE;
+    } else {
+	b = Currentbuf->linkBuffer[LB_N_FRAME];
+	if (b && b->frameset) {
+	    f_element = search_frame(b->frameset, target);
+	    if (f_element == NULL || f_element->body->attr != F_BODY)
+		t = TRUE;
+	}
+    }
+
+    if (!t) {
+	parseURL2(url, &u, baseURL(Currentbuf));
+	loadLink(parsedURL2Str(&u)->ptr, target,
+		 parsedURL2Str(&Currentbuf->currentURL)->ptr, NULL);
+    } else {
+	_newT();
+	b = Currentbuf;
+	parseURL2(url, &u, baseURL(Currentbuf));
+	loadLink(parsedURL2Str(&u)->ptr, target,
+		 parsedURL2Str(&Currentbuf->currentURL)->ptr, NULL);
+	if (b != Currentbuf)
+	    delBuffer(b);
+	else
+	    deleteTab(CurrentTab);
+	displayBuffer(Currentbuf, B_NORMAL);
+
+	/* TODO: set target name to the "window" */
+    }
+    return;
+}
+#endif

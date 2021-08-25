@@ -5,12 +5,19 @@
 
 #define ATTR_CORE	ATTR_ID
 #define MAXA_CORE	1
+
+/* %event: onclick, ondblclick, onmousedown, onmouseup,
+  onmouseover, onmousemove, onmouseout, onkeypress,
+  onkeydown, onkeyup */
+#define ATTR_EVENTS    ATTR_ONCLICK, ATTR_ONKEYPRESS
+#define MAXA_EVENTS    2
+
 unsigned char ALST_A[] = {
     ATTR_NAME, ATTR_HREF, ATTR_REL, ATTR_CHARSET, ATTR_TARGET, ATTR_HSEQ,
     ATTR_REFERER,
-    ATTR_FRAMENAME, ATTR_TITLE, ATTR_ACCESSKEY, ATTR_CORE
+    ATTR_FRAMENAME, ATTR_TITLE, ATTR_ACCESSKEY, ATTR_CORE, ATTR_EVENTS
 };
-#define MAXA_A		MAXA_CORE + 10
+#define MAXA_A		MAXA_CORE + MAXA_EVENTS + 10
 unsigned char ALST_P[] = { ATTR_ALIGN, ATTR_CORE };
 #define MAXA_P		MAXA_CORE + 1
 unsigned char ALST_UL[] = { ATTR_START, ATTR_TYPE, ATTR_CORE };
@@ -29,9 +36,9 @@ unsigned char ALST_PRE[] = { ATTR_FOR_TABLE, ATTR_CORE };
 #define MAXA_PRE	MAXA_CORE + 1
 unsigned char ALST_IMG[] =
     { ATTR_SRC, ATTR_ALT, ATTR_WIDTH, ATTR_HEIGHT, ATTR_ALIGN, ATTR_USEMAP,
-    ATTR_ISMAP, ATTR_TITLE, ATTR_PRE_INT, ATTR_CORE
+    ATTR_ISMAP, ATTR_TITLE, ATTR_PRE_INT, ATTR_NAME, ATTR_CORE
 };
-#define MAXA_IMG	MAXA_CORE + 9
+#define MAXA_IMG	MAXA_CORE + 10
 unsigned char ALST_TABLE[] =
     { ATTR_BORDER, ATTR_WIDTH, ATTR_HBORDER, ATTR_CELLSPACING,
     ATTR_CELLPADDING, ATTR_VSPACE, ATTR_CORE
@@ -49,23 +56,27 @@ unsigned char ALST_NOFRAMES[] = { ATTR_CORE };
 #define MAXA_NOFRAMES	MAXA_CORE
 unsigned char ALST_FORM[] =
     { ATTR_METHOD, ATTR_ACTION, ATTR_CHARSET, ATTR_ACCEPT_CHARSET,
-    ATTR_ENCTYPE, ATTR_TARGET, ATTR_NAME, ATTR_CORE
+    ATTR_ENCTYPE, ATTR_TARGET, ATTR_NAME, ATTR_CORE, ATTR_EVENTS,
+    ATTR_ONSUBMIT, ATTR_ONRESET
 };
-#define MAXA_FORM       MAXA_CORE + 7
+#define MAXA_FORM       MAXA_CORE + MAXA_EVENTS + 9
 unsigned char ALST_INPUT[] =
     { ATTR_TYPE, ATTR_VALUE, ATTR_NAME, ATTR_CHECKED, ATTR_ACCEPT, ATTR_SIZE,
     ATTR_MAXLENGTH, ATTR_ALT, ATTR_READONLY, ATTR_SRC, ATTR_WIDTH, ATTR_HEIGHT,
-    ATTR_CORE
+    ATTR_CORE, ATTR_EVENTS, ATTR_ONSELECT, ATTR_ONCHANGE,
 };
-#define MAXA_INPUT      MAXA_CORE + 12
+#define MAXA_INPUT      MAXA_CORE + MAXA_EVENTS + 14
 unsigned char ALST_BUTTON[] =
     { ATTR_TYPE, ATTR_VALUE, ATTR_NAME, ATTR_CORE };
 #define MAXA_BUTTON	MAXA_CORE + 3
 unsigned char ALST_TEXTAREA[] =
-    { ATTR_COLS, ATTR_ROWS, ATTR_NAME, ATTR_READONLY, ATTR_CORE };
-#define MAXA_TEXTAREA   MAXA_CORE + 4
-unsigned char ALST_SELECT[] = { ATTR_NAME, ATTR_MULTIPLE, ATTR_CORE };
-#define MAXA_SELECT	MAXA_CORE + 2
+    { ATTR_COLS, ATTR_ROWS, ATTR_NAME, ATTR_READONLY, ATTR_CORE,
+    ATTR_EVENTS, ATTR_ONSELECT, ATTR_ONCHANGE
+};
+#define MAXA_TEXTAREA   MAXA_CORE + MAXA_EVENTS + 6
+unsigned char ALST_SELECT[] =
+    { ATTR_NAME, ATTR_MULTIPLE, ATTR_CORE, ATTR_EVENTS, ATTR_ONCHANGE };
+#define MAXA_SELECT	MAXA_CORE + MAXA_EVENTS + 3
 unsigned char ALST_OPTION[] =
     { ATTR_VALUE, ATTR_LABEL, ATTR_SELECTED, ATTR_CORE };
 #define MAXA_OPTION	MAXA_CORE + 3
@@ -76,6 +87,9 @@ unsigned char ALST_MAP[] = { ATTR_NAME, ATTR_CORE };
 unsigned char ALST_AREA[] =
     { ATTR_HREF, ATTR_TARGET, ATTR_ALT, ATTR_SHAPE, ATTR_COORDS, ATTR_CORE };
 #define MAXA_AREA	MAXA_CORE + 5
+unsigned char ALST_SCRIPT[] =
+    { ATTR_LANGUAGE, ATTR_SRC, ATTR_FRAMENAME, ATTR_CORE };
+#define MAXA_SCRIPT	MAXA_CORE + 3
 unsigned char ALST_BASE[] = { ATTR_HREF, ATTR_TARGET, ATTR_CORE };
 #define MAXA_BASE	MAXA_CORE + 2
 unsigned char ALST_BODY[] = { ATTR_BACKGROUND, ATTR_CORE };
@@ -119,9 +133,9 @@ unsigned char ALST_INPUT_ALT[] =
 unsigned char ALST_IMG_ALT[] =
     { ATTR_SRC, ATTR_WIDTH, ATTR_HEIGHT, ATTR_USEMAP, ATTR_ISMAP, ATTR_HSEQ,
     ATTR_XOFFSET, ATTR_YOFFSET, ATTR_TOP_MARGIN, ATTR_BOTTOM_MARGIN,
-    ATTR_TITLE
+    ATTR_TITLE, ATTR_NAME
 };
-#define MAXA_IMG_ALT  11
+#define MAXA_IMG_ALT  12
 unsigned char ALST_NOP[] = { ATTR_CORE };
 #define MAXA_NOP	MAXA_CORE
 
@@ -184,7 +198,7 @@ TagInfo TagMAP[MAX_HTMLTAG] = {
     {"map", ALST_MAP, MAXA_MAP, 0},	/*  55 HTML_MAP        */
     {"/map", NULL, 0, TFLG_END},	/*  56 HTML_N_MAP      */
     {"area", ALST_AREA, MAXA_AREA, 0},	/*  57 HTML_AREA       */
-    {"script", ALST_NOP, MAXA_NOP, 0},	/*  58 HTML_SCRIPT     */
+    {"script", ALST_SCRIPT, MAXA_SCRIPT, 0},	/*  58 HTML_SCRIPT     */
     {"/script", NULL, 0, TFLG_END},	/*  59 HTML_N_SCRIPT   */
     {"base", ALST_BASE, MAXA_BASE, 0},	/*  60 HTML_BASE       */
     {"del", ALST_NOP, MAXA_NOP, 0},	/*  61 HTML_DEL        */
@@ -370,13 +384,13 @@ TagAttrInfo AttrMAP[MAX_TAGATTR] = {
     {"title", VTYPE_STR, 0},	/* 49 ATTR_TITLE          */
     {"accesskey", VTYPE_STR, 0},	/* 50 ATTR_ACCESSKEY          */
     {"public", VTYPE_NONE, 0},	/* 51 ATTR_PUBLIC         */
-    {NULL, VTYPE_NONE, 0},	/* 52 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 53 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 54 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 55 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 56 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 57 Undefined           */
-    {NULL, VTYPE_NONE, 0},	/* 58 Undefined           */
+    {"language", VTYPE_STR, 0},	/* 52 ATTR_LANGUAGE           */
+    {"onclick", VTYPE_STR, 0},	/* 53 ATTR_ONCLICK           */
+    {"onkeypress", VTYPE_STR, 0},	/* 54 ATTR_ONKEYPRESS           */
+    {"onsubmit", VTYPE_STR, 0},	/* 55 ATTR_ONSUBMIT           */
+    {"onreset", VTYPE_STR, 0},	/* 56 ATTR_ONRESET           */
+    {"onselect", VTYPE_STR, 0},	/* 57 ATTR_ONSELECT           */
+    {"onchange", VTYPE_STR, 0},	/* 58 ATTR_ONCHANGE           */
     {NULL, VTYPE_NONE, 0},	/* 59 Undefined           */
 
     /* Internal attribute */

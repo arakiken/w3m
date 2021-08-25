@@ -9149,6 +9149,49 @@ case "$host_os" in
     ;;
 esac
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for js_version in -ljs" >&5
+$as_echo_n "checking for js_version in -ljs... " >&6; }
+if ${ac_cv_lib_js_js_version+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-ljs  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char js_version ();
+int
+main ()
+{
+return js_version ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_js_js_version=yes
+else
+  ac_cv_lib_js_js_version=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_js_js_version" >&5
+$as_echo "$ac_cv_lib_js_js_version" >&6; }
+if test "x$ac_cv_lib_js_js_version" = xyes; then :
+  $as_echo "#define USE_JAVASCRIPT 1" >>confdefs.h
+
+ W3M_LIBS="$W3M_LIBS -ljs"
+fi
+
+
 ac_header_dirent=no
 for ac_hdr in dirent.h sys/ndir.h sys/dir.h ndir.h; do
   as_ac_Header=`$as_echo "ac_cv_header_dirent_$ac_hdr" | $as_tr_sh`

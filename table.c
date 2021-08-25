@@ -2045,6 +2045,9 @@ begin_table(int border, int spacing, int padding, int vspace)
     t->maxrow = -1;
     t->border_mode = border;
     t->flag = 0;
+#ifdef USE_SCRIPT
+    t->h_env = NULL;
+#endif
     if (border == BORDER_NOWIN)
 	t->flag |= TBL_EXPAND_OK;
 
@@ -2437,6 +2440,20 @@ table_close_textarea(struct table *tbl, struct table_mode *mode, int width)
     feed_table1(tbl, tmp, mode, width);
 }
 
+#ifdef USE_SCRIPT
+static void
+table_close_script(struct table *tbl, struct table_mode *mode, int width)
+{
+    Str tmp;
+    mode->pre_mode &= ~TBLM_SCRIPT;
+    mode->end_tag = 0;
+    if (! use_script)
+	return;
+    tmp = process_n_script(tbl->h_env);
+    feed_table1(tbl, tmp, mode, width);
+}
+#endif
+
 static void
 table_close_anchor0(struct table *tbl, struct table_mode *mode)
 {
@@ -2499,6 +2516,15 @@ feed_table_tag(struct table *tbl, char *line, struct table_mode *mode,
 
     cmd = tag->tagid;
 
+#ifdef USE_SCRIPT
+    if (mode->pre_mode & TBLM_NOSCRIPT) {
+	if (mode->end_tag == cmd) {
+	    mode->pre_mode &= ~TBLM_NOSCRIPT;
+	    mode->end_tag = 0;
+	}
+	return TAG_ACTION_NONE;
+    }
+#endif
     if (mode->pre_mode & TBLM_PLAIN) {
 	if (mode->end_tag == cmd) {
 	    mode->pre_mode &= ~TBLM_PLAIN;
@@ -2522,8 +2548,12 @@ feed_table_tag(struct table *tbl, char *line, struct table_mode *mode,
     }
     if (mode->pre_mode & TBLM_SCRIPT) {
 	if (mode->end_tag == cmd) {
+#ifdef USE_SCRIPT
+	    table_close_script(tbl, mode, width);
+#else
 	    mode->pre_mode &= ~TBLM_SCRIPT;
 	    mode->end_tag = 0;
+#endif
 	    return TAG_ACTION_NONE;
 	}
 	return TAG_ACTION_PLAIN;
@@ -3151,9 +3181,24 @@ feed_table_tag(struct table *tbl, char *line, struct table_mode *mode,
     case HTML_COL:
 	break;
     case HTML_SCRIPT:
+#ifdef USE_SCRIPT
+	if (use_script) {
+	    tmp = process_script(tag, tbl->h_env);
+	    if (tmp != NULL)
+		feed_table1(tbl, tmp, mode, width);
+	}
+#endif
 	mode->pre_mode |= TBLM_SCRIPT;
 	mode->end_tag = HTML_N_SCRIPT;
 	break;
+#ifdef USE_SCRIPT
+    case HTML_NOSCRIPT:
+	if (use_script) {
+	    mode->pre_mode |= TBLM_NOSCRIPT;
+	    mode->end_tag = HTML_N_NOSCRIPT;
+	}
+	break;
+#endif
     case HTML_STYLE:
 	mode->pre_mode |= TBLM_STYLE;
 	mode->end_tag = HTML_N_STYLE;
@@ -3218,6 +3263,9 @@ feed_table(struct table *tbl, char *line, struct table_mode *mode,
 	}
 	else {
 	    if (!(mode->pre_mode & (TBLM_PLAIN | TBLM_INTXTA | TBLM_INSELECT |
+#ifdef USE_SCRIPT
+				    TBLM_NOSCRIPT |
+#endif
 				    TBLM_SCRIPT | TBLM_STYLE)))
 		return -1;
 	}
@@ -3230,8 +3278,18 @@ feed_table(struct table *tbl, char *line, struct table_mode *mode,
 	Strcat_charp(tbl->caption, line);
 	return -1;
     }
+#ifdef USE_SCRIPT
+    if (mode->pre_mode & TBLM_NOSCRIPT)
+	return -1;
+    if (mode->pre_mode & TBLM_SCRIPT) {
+	if (use_script)
+	    feed_script(line, tbl->h_env);
+	return -1;
+    }
+#else
     if (mode->pre_mode & TBLM_SCRIPT)
 	return -1;
+#endif
     if (mode->pre_mode & TBLM_STYLE)
 	return -1;
     if (mode->pre_mode & TBLM_INTXTA) {

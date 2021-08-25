@@ -110,6 +110,10 @@ discardBuffer(Buffer *buf)
 	unlink(buf->header_source);
     if (buf->mailcap_source)
 	unlink(buf->mailcap_source);
+#ifdef USE_SCRIPT
+    if (buf->script_lang)
+	script_close(buf);
+#endif
     while (buf->frameset) {
 	deleteFrameSet(buf->frameset);
 	buf->frameset = popFrameTree(&(buf->frameQ));

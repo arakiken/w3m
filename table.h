@@ -114,6 +114,9 @@ struct table {
     VEC *vector;
 #endif				/* MATRIX */
     int sloppy_width;
+#ifdef USE_SCRIPT
+    struct html_feed_environ *h_env;
+#endif
 };
 
 #define TBLM_PRE	RB_PRE
@@ -128,6 +131,9 @@ struct table {
 #define TBLM_SPECIAL	(TBLM_PRE | TBLM_PRE_INT | TBLM_SCRIPT | TBLM_STYLE | TBLM_PLAIN | TBLM_NOBR)
 #define TBLM_DEL	RB_DEL
 #define TBLM_S		RB_S
+#ifdef USE_SCRIPT
+#define TBLM_NOSCRIPT	RB_NOSCRIPT
+#endif
 #define TBLM_ANCHOR	0x1000000
 
 struct table_mode {

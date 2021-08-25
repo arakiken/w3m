@@ -122,6 +122,10 @@ case "$host_os" in
     ;;
 esac
 
+AC_CHECK_LIB(js, js_version,
+[AC_DEFINE(USE_JAVASCRIPT)
+ W3M_LIBS="$W3M_LIBS -ljs"])
+
 AC_HEADER_DIRENT
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT

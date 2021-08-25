@@ -259,6 +259,10 @@ static int OptionEncode = FALSE;
 
 #define CMT_KEYMAP_FILE N_("keymap file")
 
+#define CMT_USE_SCRIPT N_("Use JavaScript")
+#define CMT_ENABLE_JS_WINDOWOPEN N_("Enable window.open()")
+#define CMT_CONFIRM_JS_WINDOWCLOSE N_("Confirm window.close()")
+
 #define PI_TEXT    0
 #define PI_ONOFF   1
 #define PI_SEL_C   2
@@ -775,6 +779,18 @@ struct param_ptr params10[] = {
 };
 #endif
 
+#ifdef USE_SCRIPT
+struct param_ptr params11[] = {
+    {"use_script", P_INT, PI_ONOFF, (void *)&use_script, CMT_USE_SCRIPT,
+     NULL},
+    {"enable_js_windowopen", P_INT, PI_ONOFF,
+     (void *)&enable_js_windowopen, CMT_ENABLE_JS_WINDOWOPEN, NULL},
+    {"confirm_js_windowclose", P_INT, PI_ONOFF,
+     (void *)&confirm_js_windowclose, CMT_CONFIRM_JS_WINDOWCLOSE, NULL},
+    {NULL, 0, 0, NULL, NULL, NULL},
+};
+#endif                         /* USE_SCRIPT */
+
 struct param_section sections[] = {
     {N_("Display Settings"), params1},
 #ifdef USE_COLOR
@@ -793,6 +809,9 @@ struct param_section sections[] = {
 #endif
 #ifdef USE_M17N
     {N_("Charset Settings"), params10},
+#endif
+#ifdef USE_SCRIPT
+    {N_("Script Settings"), params11},
 #endif
     {NULL, NULL}
 };

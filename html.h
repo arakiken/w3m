@@ -60,6 +60,7 @@ typedef struct _ParsedURL {
     char *query;
     char *label;
     int is_nocache;
+    int has_port;
 } ParsedURL;
 
 union input_stream;
@@ -324,6 +325,13 @@ typedef struct {
 #define ATTR_TITLE		49
 #define ATTR_ACCESSKEY		50
 #define ATTR_PUBLIC		51
+#define ATTR_LANGUAGE		52
+#define ATTR_ONCLICK		53
+#define ATTR_ONKEYPRESS		54
+#define ATTR_ONSUBMIT		55
+#define ATTR_ONRESET		56
+#define ATTR_ONSELECT		57
+#define ATTR_ONCHANGE		58
 
 /* Internal attribute */
 #define ATTR_XOFFSET		60
@@ -417,5 +425,8 @@ struct environment {
 #ifdef USE_SSL
 #define SCM_HTTPS       13
 #endif				/* USE_SSL */
+#ifdef USE_JAVASCRIPT
+#define SCM_JAVASCRIPT	14
+#endif
 
 #endif				/* _HTML_H */

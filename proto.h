@@ -240,6 +240,14 @@ extern void process_option(void);
 extern Str process_textarea(struct parsed_tag *tag, int width);
 extern Str process_n_textarea(void);
 extern void feed_textarea(char *str);
+#ifdef USE_SCRIPT
+extern Str process_script(struct parsed_tag *tag, struct html_feed_environ *h_env);
+extern Str process_n_script(struct html_feed_environ *h_env);
+extern void feed_script(char *str, struct html_feed_environ *h_env);
+extern Str script_eval(Buffer *buf, char *lang, char *script);
+extern void script_close(Buffer *buf);
+extern void jWindowOpen(Buffer *buf, char *url, char *target);
+#endif
 extern Str process_form(struct parsed_tag *tag);
 extern Str process_n_form(void);
 extern int getMetaRefreshParam(char *q, Str *refresh_uri);
