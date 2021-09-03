@@ -38,7 +38,7 @@ remove_quotation(char *str) {
 }
 
 static void
-put_form_element(JSContext *interp, int i, int j, FormItemList *fi)
+put_form_element(void *interp, int i, int j, FormItemList *fi)
 {
     char *id, *n, *t, *v;
 
@@ -122,17 +122,14 @@ put_form_element(JSContext *interp, int i, int j, FormItemList *fi)
     js_eval(interp, Sprintf("document.forms[%d].elements[%d].value = \"%s\";", i, j, v)->ptr);
     if (fi->name && fi->name->length > 0)
 	js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
+    if (fi->id && fi->id->length > 0)
+	js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, id, i, j)->ptr);
 }
 
 static void
-script_buf2js(Buffer *buf, JSContext *interp)
+script_buf2js(Buffer *buf, void *interp)
 {
-    Buffer *tb;
-    int i, j;
-    AnchorList *aln, *alh;
-    Anchor *an, *ah;
-    FormList *fl;
-    FormItemList *fi;
+    int i;
 
     if (!js_is_object(js_eval(interp, "window;"))) {
 	js_eval(interp, "var window = new Window();");
@@ -154,6 +151,8 @@ script_buf2js(Buffer *buf, JSContext *interp)
 
     i = 0;
     if (CurrentTab != NULL) {
+	Buffer *tb;
+
 	for (tb = Firstbuf; tb != NULL; i++, tb = tb->nextBuffer);
     }
     js_eval(interp, Sprintf("history.length = %d;", i)->ptr);
@@ -188,6 +187,9 @@ script_buf2js(Buffer *buf, JSContext *interp)
 	js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
 	if (buf->name != NULL) {
+	    AnchorList *aln, *alh;
+	    Anchor *an, *ah;
+
 	    aln = buf->name;
 	    alh = buf->href;
 	    for (i = 0; i < aln->nanchor; i++) {
@@ -213,8 +215,12 @@ script_buf2js(Buffer *buf, JSContext *interp)
 	    }
 	}
 	if (buf->formlist != NULL) {
+	    FormList *fl;
+
 	    for (i = 0, fl = buf->formlist; fl != NULL; i++, fl = fl->next) {
 		char *m, *a, *e, *n, *t, *id;
+		FormItemList *fi;
+		int j;
 
 		js_eval(interp, Sprintf("document.forms[%d] = new Form();", i)->ptr);
 		if (fl->method == FORM_METHOD_POST) {
@@ -302,8 +308,28 @@ script_chBuf(int pos)
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
+static void
+get_form_element(void *interp, int i, int j, FormItemList *fi)
+{
+    JSValue value;
+    Str str;
+    char *cstr;
+
+    value = js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked;", i, j)->ptr);
+    cstr = js_get_cstr(interp, value);
+    if (cstr != NULL) {
+	fi->checked = (strcmp(cstr, "true") == 0);
+    }
+
+    value = js_eval(interp, Sprintf("document.forms[%d].elements[%d].value;", i, j)->ptr);
+    str = js_get_str(interp, value);
+    if (str != NULL) {
+	fi->value = str;
+    }
+}
+
 static Str
-script_js2buf(Buffer *buf, JSContext *interp)
+script_js2buf(Buffer *buf, void *interp)
 {
     JSValue value;
     char *str;
@@ -395,6 +421,8 @@ script_js2buf(Buffer *buf, JSContext *interp)
 		FormState *state = js_get_state(value, FormClassID);
 		char *cstr;
 		Str str;
+		int j;
+		FormItemList *fi;
 
 		value = js_eval(interp, Sprintf("document.forms[%d].method;", i)->ptr);
 		cstr = js_get_cstr(interp, value);
@@ -432,6 +460,10 @@ script_js2buf(Buffer *buf, JSContext *interp)
 		    fl->id = cstr;
 		}
 
+		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
+		    get_form_element(interp, i, j, fi);
+		}
+
 		if (state->submit) {
 		    followForm(fl);
 		    state->submit = 0;
@@ -459,7 +491,7 @@ script_js2buf(Buffer *buf, JSContext *interp)
 static Str
 script_js_eval(Buffer *buf, char *script)
 {
-    JSContext *interp;
+    void *interp;
 
     if (buf == NULL) {
 	return NULL;
