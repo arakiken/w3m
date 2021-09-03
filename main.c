@@ -108,7 +108,7 @@ static int add_download_list = FALSE;
 void set_buffer_environ(Buffer *);
 static void save_buffer_position(Buffer *buf);
 
-static void _followForm(int);
+static void _followForm(int, FormList *);
 static void _goLine(char *);
 static void _newT(void);
 static void followTab(TabBuffer * tab);
@@ -1040,7 +1040,7 @@ main(int argc, char **argv, char **envp)
 			fclose(fp);
 		    request =
 			newFormList(NULL, "post", NULL, NULL, NULL, NULL,
-				    NULL);
+				    NULL, NULL);
 		    request->body = body->ptr;
 		    request->boundary = NULL;
 		    request->length = body->length;
@@ -1173,7 +1173,7 @@ main(int argc, char **argv, char **envp)
 	    Currentbuf->submit = NULL;
 	    gotoLine(Currentbuf, a->start.line);
 	    Currentbuf->pos = a->start.pos;
-	    _followForm(TRUE);
+	    _followForm(TRUE, NULL);
 	    continue;
 	}
 	/* event processing */
@@ -3128,7 +3128,7 @@ DEFUN(followA, GOTO_LINK, "Follow current hyperlink in a new buffer")
 #ifdef USE_IMAGE
     a = retrieveCurrentImg(Currentbuf);
     if (a && a->image && a->image->map) {
-	_followForm(FALSE);
+	_followForm(FALSE, NULL);
 	return;
     }
     if (a && a->image && a->image->ismap) {
@@ -3138,13 +3138,13 @@ DEFUN(followA, GOTO_LINK, "Follow current hyperlink in a new buffer")
 #else
     a = retrieveCurrentMap(Currentbuf);
     if (a) {
-	_followForm(FALSE);
+	_followForm(FALSE, NULL);
 	return;
     }
 #endif
     a = retrieveCurrentAnchor(Currentbuf);
     if (a == NULL) {
-	_followForm(FALSE);
+	_followForm(FALSE, NULL);
 	return;
     }
     if (*a->url == '#') {	/* index within this buffer */
@@ -3446,18 +3446,18 @@ query_from_followform(Str *query, FormItemList *fi, int multipart)
 /* submit form */
 DEFUN(submitForm, SUBMIT, "Submit form")
 {
-    _followForm(TRUE);
+    _followForm(TRUE, NULL);
 }
 
 /* process form */
 void
-followForm(void)
+followForm(FormList *fl)
 {
-    _followForm(FALSE);
+    _followForm(FALSE, fl);
 }
 
 static void
-_followForm(int submit)
+_followForm(int submit, FormList *fl)
 {
     Anchor *a, *a2;
     char *p;
@@ -3468,10 +3468,17 @@ _followForm(int submit)
     if (Currentbuf->firstLine == NULL)
 	return;
 
-    a = retrieveCurrentForm(Currentbuf);
-    if (a == NULL)
-	return;
-    fi = (FormItemList *)a->url;
+    if (fl == NULL) {
+	a = retrieveCurrentForm(Currentbuf);
+	if (a == NULL)
+	    return;
+	fi = (FormItemList *)a->url;
+    } else {
+	fi = fl->item;
+	/* See registerForm() */
+	putAnchor(NULL, (char*)fi, fl->target, &a, NULL, NULL, '\0', 1, 1);
+    }
+
     switch (fi->type) {
     case FORM_INPUT_TEXT:
 	if (submit)
@@ -3570,6 +3577,15 @@ _followForm(int submit)
     case FORM_INPUT_SUBMIT:
     case FORM_INPUT_BUTTON:
       do_submit:
+	if (fi->onclick) {
+	    script_eval(Currentbuf, "javascript", fi->onclick->ptr);
+	    if (Currentbuf->location) {
+		Buffer *buf = loadGeneralFile(Currentbuf->location, baseURL(Currentbuf),
+					      NO_REFERER, 0, NULL);
+		pushBuffer(buf);
+	    }
+	    break;
+	}
 	tmp = Strnew();
 	multipart = (fi->parent->method == FORM_METHOD_POST &&
 		     fi->parent->enctype == FORM_ENCTYPE_MULTIPART);
@@ -4365,7 +4381,7 @@ DEFUN(adBmark, ADD_BOOKMARK, "Add current page to bookmarks")
 #else
 		  (Str_form_quote(Strnew_charp(Currentbuf->buffername)))->ptr);
 #endif
-    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL);
+    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL, NULL);
     request->body = tmp->ptr;
     request->length = tmp->length;
     cmd_loadURL("file:///$LIB/" W3MBOOKMARK_CMDNAME, NULL, NO_REFERER,

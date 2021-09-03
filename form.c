@@ -38,7 +38,7 @@ struct {
 
 struct form_list *
 newFormList(char *action, char *method, char *charset, char *enctype,
-	    char *target, char *name, struct form_list *_next)
+	    char *target, char *name, char *id, struct form_list *_next)
 {
     struct form_list *l;
     Str a = Strnew_charp(action);
@@ -76,6 +76,7 @@ newFormList(char *action, char *method, char *charset, char *enctype,
     l->enctype = e;
     l->target = target;
     l->name = name;
+    l->id = id;
     l->next = _next;
     l->nitems = 0;
     l->body = NULL;
@@ -114,6 +115,8 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 	     item->type == FORM_INPUT_PASSWORD))
 	    item->size = FORM_I_TEXT_DEFAULT_SIZE;
     }
+    if (parsedtag_get_value(tag, ATTR_ID, &p))
+	item->id = Strnew_charp(p);
     if (parsedtag_get_value(tag, ATTR_NAME, &p))
 	item->name = Strnew_charp(p);
     if (parsedtag_get_value(tag, ATTR_VALUE, &p))
@@ -145,6 +148,13 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 	item->init_label = item->label;
     }
 #endif				/* MENU_SELECT */
+#ifdef USE_SCRIPT
+    if (parsedtag_get_value(tag, ATTR_ONCLICK, &p)) {
+	item->onclick = Strnew_charp(p);
+    } else {
+	item->onclick = NULL;
+    }
+#endif
     if (item->type == FORM_INPUT_FILE && item->value && item->value->length) {
 	/* security hole ! */
 	return NULL;

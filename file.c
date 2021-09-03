@@ -3638,7 +3638,7 @@ Str
 process_input(struct parsed_tag *tag)
 {
     int i = 20, v, x, y, z, iw, ih, size = 20;
-    char *q, *p, *r, *p2, *s;
+    char *q, *p, *r, *p2, *p3, *s;
     Str tmp = NULL;
     char *qq = "";
     int qlen = 0;
@@ -3662,6 +3662,8 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_MAXLENGTH, &i);
     p2 = NULL;
     parsedtag_get_value(tag, ATTR_ALT, &p2);
+    p3 = NULL;
+    parsedtag_get_value(tag, ATTR_ONCLICK, &p3);
     x = parsedtag_exists(tag, ATTR_CHECKED);
     y = parsedtag_exists(tag, ATTR_ACCEPT);
     z = parsedtag_exists(tag, ATTR_READONLY);
@@ -3722,6 +3724,9 @@ process_input(struct parsed_tag *tag)
 	Strcat_charp(tmp, " accept");
     if (z)
 	Strcat_charp(tmp, " readonly");
+    if (p3) {
+	Strcat(tmp, Sprintf(" onclick=\"%s\"", p3));
+    }
     Strcat_char(tmp, '>');
 
     if (v == FORM_INPUT_HIDDEN)
@@ -4190,7 +4195,6 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
     q = NULL;
     if (parsedtag_get_value(tag, ATTR_SRC, &q)) {
 	FILE *f;
-	Str s;
 	char *file;
 	pid_t pid;
 
@@ -4243,11 +4247,18 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
 	}
 	unlink(file);
 
+	/*
+	 * XXX
+	 * '#if 0' is to prevent calling process_n_script() twice.
+	 * (at both <script> and </script>)
+	 */
+#if 0
 	s = process_n_script(h_env);
 	if (s == NULL) {
 	    s = Strnew();
 	}
 	return s;
+#endif
     }
     return NULL;
 }
@@ -4363,7 +4374,7 @@ check_accept_charset(char *ac)
 static Str
 process_form_int(struct parsed_tag *tag, int fid)
 {
-    char *p, *q, *r, *s, *tg, *n;
+    char *p, *q, *r, *s, *tg, *n, *id;
 
     p = "get";
     parsedtag_get_value(tag, ATTR_METHOD, &p);
@@ -4383,6 +4394,8 @@ process_form_int(struct parsed_tag *tag, int fid)
     parsedtag_get_value(tag, ATTR_TARGET, &tg);
     n = NULL;
     parsedtag_get_value(tag, ATTR_NAME, &n);
+    id = NULL;
+    parsedtag_get_value(tag, ATTR_ID, &id);
 
     if (fid < 0) {
 	form_max++;
@@ -4419,11 +4432,13 @@ process_form_int(struct parsed_tag *tag, int fid)
 	if (r)
 	    Strcat(tmp, Sprintf(" accept-charset=\"%s\"", html_quote(r)));
 #endif
+	if (id)
+	    Strcat(tmp, Sprintf(" id=\"%s\"", html_quote(id)));
 	Strcat_charp(tmp, ">");
 	return tmp;
     }
 
-    forms[fid] = newFormList(q, p, r, s, tg, n, NULL);
+    forms[fid] = newFormList(q, p, r, s, tg, n, id, NULL);
     return NULL;
 }
 

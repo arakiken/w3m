@@ -46,6 +46,7 @@ typedef struct form_list {
     int method;
     Str action;
     char *target;
+    char *id;
     char *name;
 #ifdef USE_M17N
     wc_ces charset;
@@ -79,6 +80,7 @@ int formChooseOptionByMenu(struct form_item_list *fi, int x, int y);
 
 typedef struct form_item_list {
     int type;
+    Str id;
     Str name;
     Str value, init_value;
     int checked, init_checked;
@@ -92,6 +94,9 @@ typedef struct form_item_list {
     Str label, init_label;
     int selected, init_selected;
 #endif				/* MENU_SELECT */
+#ifdef USE_SCRIPT
+    Str onclick;
+#endif
     struct form_list *parent;
     struct form_item_list *next;
 } FormItemList;

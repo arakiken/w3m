@@ -1,28 +1,9 @@
-/* -*- tab-width:8; c-basic-offset:4 -*- */
 #include "fm.h"
 #ifdef USE_SCRIPT
 #ifdef USE_JAVASCRIPT
 #include "js_html.h"
 
 #include <ctype.h> /* tolower */
-
-static JSValue
-JS_EvalStr(JSContext *interp, char *str) {
-    JSValue ret = JS_Eval(interp, str, strlen(str), "<input>", JS_EVAL_FLAG_STRICT);
-
-    if (JS_IsException(ret)) {
-	JSValue err = JS_GetException(interp);
-	const char *err_str = JS_ToCString(interp, err);
-#ifdef SCRIPT_DEBUG
-	FILE *fp = fopen("scriptlog.txt", "a");
-	fprintf(fp, "<%s>\n%s\n", err_str, str);
-	fclose(fp);
-#endif
-	JS_FreeValue(interp, err);
-    }
-
-    return ret;
-}
 
 static char *
 chop_last_modified(Buffer *buf) {
@@ -36,6 +17,113 @@ chop_last_modified(Buffer *buf) {
     return lm;
 }
 
+static char *
+remove_quotation(char *str) {
+    char *p1 = str;
+    char *p2 = str;
+
+    if (*p1 == '\0') {
+	return str;
+    }
+
+    do {
+	if (*p1 != '\"' && *p1 != '\'') {
+	    *(p2++) = *p1;
+	}
+    } while (*(++p1));
+
+    *p2 = '\0';
+
+    return str;
+}
+
+static void
+put_form_element(JSContext *interp, int i, int j, FormItemList *fi)
+{
+    char *id, *n, *t, *v;
+
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d] = new FormItem();", i, j)->ptr);
+
+    id = n = v = "";
+    if (fi->id && fi->id->length > 0)
+	id = fi->id->ptr;
+    if (fi->name && fi->name->length > 0)
+	n = fi->name->ptr;
+    if (fi->value && fi->value->length > 0)
+	v = fi->value->ptr;
+
+    switch (fi->type) { /* TODO: ... */
+    case FORM_INPUT_TEXT:
+	t = "text";
+	if (fi->init_value->length > 0)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
+	break;
+    case FORM_INPUT_PASSWORD:
+	t = "password";
+	if (fi->init_value->length > 0)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
+	break;
+    case FORM_INPUT_CHECKBOX:
+	t = "checkbox";
+	if (fi->init_checked)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = true;", i, j)->ptr);
+	else
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = false;", i, j)->ptr);
+	if (fi->checked)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = true;", i, j)->ptr);
+	else
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
+	break;
+    case FORM_INPUT_RADIO:
+	t = "radio";
+	if (fi->init_checked)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = true;", i, j)->ptr);
+	else
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = false;", i, j)->ptr);
+	if (fi->checked)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = true;", i, j)->ptr);
+	else
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
+	break;
+    case FORM_INPUT_SUBMIT:
+	t = "submit"; break;
+    case FORM_INPUT_RESET:
+	t = "reset"; break;
+    case FORM_INPUT_HIDDEN:
+	t = "hidden"; break;
+    case FORM_INPUT_IMAGE:
+	t = "image"; break;
+    case FORM_SELECT:
+	t = "select";
+#ifdef MENU_SELECT
+	/* TODO: option ............ */
+	js_eval(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex = %d;", i, j, fi->selected)->ptr);
+#endif
+	break;
+    case FORM_TEXTAREA:
+	t = "textarea";
+	if (fi->init_value->length > 0)
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
+	break;
+    case FORM_INPUT_BUTTON:
+	t = "button"; break;
+    case FORM_INPUT_FILE:
+	t = "file";
+	if (fi->init_value && fi->init_value->length > 0) /* TODO: Read Only */
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
+	break;
+    default:
+	t = ""; break;
+    }
+
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].id = \"%s\";", i, j, id)->ptr);
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].name = \"%s\";", i, j, n)->ptr);
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].type = \"%s\";", i, j, t)->ptr);
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].value = \"%s\";", i, j, v)->ptr);
+    if (fi->name && fi->name->length > 0)
+	js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
+}
+
 static void
 script_buf2js(Buffer *buf, JSContext *interp)
 {
@@ -46,30 +134,35 @@ script_buf2js(Buffer *buf, JSContext *interp)
     FormList *fl;
     FormItemList *fi;
 
-    JS_IsException(JS_EvalStr(interp, "var window = new Window();"));
-    JS_IsException(JS_EvalStr(interp, "var document = new Document();"));
-    JS_IsException(JS_EvalStr(interp, "var navigator = new Navigator();"));
-    JS_IsException(JS_EvalStr(interp, "var history = new History();"));
+    if (!js_is_object(js_eval(interp, "window;"))) {
+	js_eval(interp, "var window = new Window();");
+    }
+    if (!js_is_object(js_eval(interp, "navigator;"))) {
+	js_eval(interp, "var navigator = new Navigator();");
+    }
+    js_eval(interp, "var document = new Document();");
+    js_eval(interp, "var history = new History();");
     if (buf != NULL) {
-	JS_EvalStr(interp, Sprintf("var location = new Location(\"%s\");",
+	js_eval(interp, Sprintf("var location = new Location(\"%s\");",
 				   parsedURL2Str(&buf->currentURL)->ptr)->ptr);
     } else {
-	JS_EvalStr(interp, "var location = new Location();");
+	js_eval(interp, "var location = new Location();");
     }
-    JS_EvalStr(interp, "document.anchors = new Array();");
-    JS_EvalStr(interp, "document.forms = new Array();");
+
+    js_eval(interp, "document.anchors = new Array();");
+    js_eval(interp, "document.forms = new Array();");
 
     i = 0;
     if (CurrentTab != NULL) {
 	for (tb = Firstbuf; tb != NULL; i++, tb = tb->nextBuffer);
     }
-    JS_EvalStr(interp, Sprintf("history.length = %d;", i)->ptr);
+    js_eval(interp, Sprintf("history.length = %d;", i)->ptr);
 
     if (buf != NULL) {
 	char *t, *c;
 	Str cs;
 
-	JS_EvalStr(interp, Sprintf("document.URL = \"%s\";", parsedURL2Str(&buf->currentURL)->ptr)->ptr);
+	js_eval(interp, Sprintf("document.URL = \"%s\";", parsedURL2Str(&buf->currentURL)->ptr)->ptr);
 
 	switch (buf->currentURL.scheme) {
 	case SCM_HTTP:
@@ -79,10 +172,10 @@ script_buf2js(Buffer *buf, JSContext *interp)
 	case SCM_HTTPS:
 #endif
 	    if (buf->currentURL.host != NULL)
-		JS_EvalStr(interp, Sprintf("document.domain = \"%s\";", buf->currentURL.host)->ptr);
+		js_eval(interp, Sprintf("document.domain = \"%s\";", buf->currentURL.host)->ptr);
 	    break;
 	}
-	JS_EvalStr(interp, Sprintf("document.lastModified = \"%s\";", chop_last_modified(buf))->ptr);
+	js_eval(interp, Sprintf("document.lastModified = \"%s\";", chop_last_modified(buf))->ptr);
 	c = t = "";
 	if (buf->buffername != NULL)
 	    t = buf->buffername;
@@ -91,8 +184,8 @@ script_buf2js(Buffer *buf, JSContext *interp)
 	if (cs) c = cs->ptr;
 #endif
 
-	JS_EvalStr(interp, Sprintf("document.title = \"%s\";", t)->ptr);
-	JS_EvalStr(interp, Sprintf("document.cookie = \"%s\";", c)->ptr);
+	js_eval(interp, Sprintf("document.title = \"%s\";", t)->ptr);
+	js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
 	if (buf->name != NULL) {
 	    aln = buf->name;
@@ -103,7 +196,7 @@ script_buf2js(Buffer *buf, JSContext *interp)
 		an = &aln->anchors[i];
 		ah = &alh->anchors[an->hseq];
 
-		JS_EvalStr(interp, Sprintf("document.anchors[%d] = new Anchor();", i)->ptr);
+		js_eval(interp, Sprintf("document.anchors[%d] = new Anchor();", i)->ptr);
 
 		n = h = "";
 		if (an->url != NULL)
@@ -111,24 +204,27 @@ script_buf2js(Buffer *buf, JSContext *interp)
 		if (ah->url != NULL)
 		    h = ah->url; /* TODO: It shall be Absolute URL. */
 
-		JS_EvalStr(interp, Sprintf("document.anchors[%d].name = \"%s\";", i, n)->ptr);
-		JS_EvalStr(interp, Sprintf("document.anchors[%d].href = \"%s\";", i, h)->ptr);
+		js_eval(interp, Sprintf("document.anchors[%d].name = \"%s\";", i, n)->ptr);
+		js_eval(interp, Sprintf("document.anchors[%d].href = \"%s\";", i, h)->ptr);
 		if (an->url != NULL) {
-		    JS_EvalStr(interp, Sprintf("document.%s = document.anchors[%d];", n, i)->ptr);
-/*		    JS_EvalStr(interp, Sprintf("document.anchor[\"%s\"] = document.anchors[%d];", n, i)->ptr);*/
+		    js_eval(interp, Sprintf("document.%s = document.anchors[%d];", n, i)->ptr);
+/*		    js_eval(interp, Sprintf("document.anchor[\"%s\"] = document.anchors[%d];", n, i)->ptr);*/
 		}
 	    }
 	}
 	if (buf->formlist != NULL) {
 	    for (i = 0, fl = buf->formlist; fl != NULL; i++, fl = fl->next) {
-		char *m, *a, *e, *n, *t;
+		char *m, *a, *e, *n, *t, *id;
 
-		JS_EvalStr(interp, Sprintf("document.forms[%d] = new Form();", i)->ptr);
-		m = "get";
+		js_eval(interp, Sprintf("document.forms[%d] = new Form();", i)->ptr);
 		if (fl->method == FORM_METHOD_POST) {
 		    m = "post";
+		} else if (fl->method == FORM_METHOD_INTERNAL) {
+		    m = "internal";
+		} else {
+		    m = "get";
 		}
-		a = e = n = t = "";
+		a = e = n = t = id = "";
 		if (fl->enctype == FORM_ENCTYPE_MULTIPART) {
 		    e = "multipart/form-data";
 		}
@@ -136,107 +232,44 @@ script_buf2js(Buffer *buf, JSContext *interp)
 		    a = fl->action->ptr;
 		if (fl->name != NULL)
 		    n = fl->name;
+		if (fl->id != NULL)
+		    id = fl->id;
 		if (fl->target != NULL)
 		    t = fl->target;
 
-		JS_EvalStr(interp, Sprintf("document.forms[%d].method = \"%s\";", i, m)->ptr);
-		JS_EvalStr(interp, Sprintf("document.forms[%d].action = \"%s\";", i, a)->ptr);
-		JS_EvalStr(interp, Sprintf("document.forms[%d].encoding = \"%s\";", i, e)->ptr);
-		JS_EvalStr(interp, Sprintf("document.forms[%d].name = \"%s\";", i, n)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].method = \"%s\";", i, m)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].action = \"%s\";", i, a)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].encoding = \"%s\";", i, e)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].name = \"%s\";", i, n)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].id = \"%s\";", i, id)->ptr);
 		if (fl->name != NULL) {
-		    JS_EvalStr(interp, Sprintf("document.%s = document.forms[%d];", n, i)->ptr);
-/*		    JS_EvalStr(interp, Sprintf("document.forms[\"%s\"] = document.forms[%d];", n, i)->ptr);*/
+		    js_eval(interp, Sprintf("document.%s = document.forms[%d];", n, i)->ptr);
+/*		    js_eval(interp, Sprintf("document.forms[\"%s\"] = document.forms[%d];", n, i)->ptr);*/
 		}
-		JS_EvalStr(interp, Sprintf("document.forms[%d].target = \"%s\";", i, t)->ptr);
-		JS_EvalStr(interp, Sprintf("document.forms[%d].elements = new Array();", i, fl->nitems)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].target = \"%s\";", i, t)->ptr);
+		js_eval(interp, Sprintf("document.forms[%d].elements = new Array();", i, fl->nitems)->ptr);
 
 		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
-		    char *n, *t, *v;
-
-		    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d] = new FormItem();", i, j)->ptr);
-
-		    n = v = "";
-		    if (fi->name && fi->name->length > 0)
-			n = fi->name->ptr;
-
-		    switch (fi->type) { /* TODO: ... */
-		    case FORM_INPUT_TEXT:
-			t = "text";
-			if (fi->init_value->length > 0)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
-			break;
-		    case FORM_INPUT_PASSWORD:
-			t = "password";
-			if (fi->init_value->length > 0)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
-			break;
-		    case FORM_INPUT_CHECKBOX:
-			t = "checkbox";
-			if (fi->init_checked)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = true;", i, j)->ptr);
-			else
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = false;", i, j)->ptr);
-			if (fi->checked)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].checked = true;", i, j)->ptr);
-			else
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
-			break;
-		    case FORM_INPUT_RADIO:
-			t = "radio";
-			if (fi->init_checked)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = true;", i, j)->ptr);
-			else
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultChecked = false;", i, j)->ptr);
-			if (fi->checked)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].checked = true;", i, j)->ptr);
-			else
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
-			break;
-		    case FORM_INPUT_SUBMIT:
-			t = "submit"; break;
-		    case FORM_INPUT_RESET:
-			t = "reset"; break;
-		    case FORM_INPUT_HIDDEN:
-			t = "hidden"; break;
-		    case FORM_INPUT_IMAGE:
-			t = "image"; break;
-		    case FORM_SELECT:
-			t = "select";
-#ifdef MENU_SELECT
-			/* TODO: option ............ */
-			JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex = %d;", i, j, fi->selected)->ptr);
-#endif
-			break;
-		    case FORM_TEXTAREA:
-			t = "textarea";
-			if (fi->init_value->length > 0)
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
-			break;
-		    case FORM_INPUT_BUTTON:
-			t = "button"; break;
-		    case FORM_INPUT_FILE:
-			t = "file";
-			if (fi->init_value && fi->init_value->length > 0) /* TODO: Read Only */
-			    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, fi->init_value->ptr)->ptr);
-			break;
-		    default:
-			t = ""; break;
-		    }
-
-		    if (fi->value && fi->value->length > 0)
-			v = fi->value->ptr;
-
-		    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].name = \"%s\";", i, j, n)->ptr);
-		    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].type = \"%s\";", i, j, t)->ptr);
-		    JS_EvalStr(interp, Sprintf("document.forms[%d].elements[%d].value = \"%s\";", i, j, v)->ptr);
-		    if (fi->name && fi->name->length > 0)
-			JS_EvalStr(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
+		    put_form_element(interp, i, j, fi);
 		}
 	    }
 	}
     }
 
-    /* JS_EvalStr(interp, s->ptr);*/
+    js_eval(interp,
+	       "document.getElementById = function(id) {"
+	       "  for (let i = 0; i < document.forms.length; i++) {"
+	       "    if (document.forms[i].id === id) {"
+	       "      return document.forms[i];"
+	       "    }"
+	       "    for (let j = 0; j < document.forms[i].elements.length; i++) {"
+	       "      if (document.forms[i].elements[j].id === id) {"
+	       "        return document.forms[i].elements[j];"
+	       "      }"
+	       "    }"
+	       "  }"
+	       "  return null;"
+	       "};");
 }
 
 static void
@@ -273,23 +306,20 @@ static Str
 script_js2buf(Buffer *buf, JSContext *interp)
 {
     JSValue value;
-    DocumentCtx *dictx = NULL;
-    HistoryCtx	*hictx = NULL;
-    LocationCtx *lictx = NULL;
-    WindowCtx	*wictx = NULL;
+    char *str;
 
-    value = JS_EvalStr(interp, "window;");
-    if (JS_IsObject(value)) {
-	wictx = JS_GetOpaque(value, WindowClassID);
-	if (wictx->win && wictx->win->nitem) {
-	    jse_windowopen_t	*w;
-	    while ((w = popValue(wictx->win)) != NULL) {
+    value = js_eval(interp, "window;");
+    if (js_is_object(value)) {
+	WindowState *state = js_get_state(value, WindowClassID);
+	if (state->win && state->win->nitem) {
+	    jse_windowopen_t *w;
+	    while ((w = popValue(state->win)) != NULL) {
 		if (enable_js_windowopen) {
 		    jWindowOpen(buf, w->url, w->name);
 		}
 	    }
 	}
-	if (wictx->close) {
+	if (state->close) {
 	    if (CurrentTab != NULL && Currentbuf != NULL) {
 		char *ans = "y";
 		if (buf && confirm_js_windowclose) {
@@ -300,48 +330,43 @@ script_js2buf(Buffer *buf, JSContext *interp)
 		    return NULL;
 		}
 	    }
-	    wictx->close = FALSE;
+	    state->close = FALSE;
 	}
     }
 
     if (CurrentTab != NULL && Currentbuf != NULL) {
-	value = JS_EvalStr(interp, "history;");
-	if (JS_IsObject(value)) {
-	    hictx = JS_GetOpaque(value, HistoryClassID);
-	    if (hictx->pos != 0) {
-		script_chBuf(hictx->pos);
-		hictx->pos = 0;
+	value = js_eval(interp, "history;");
+	if (js_is_object(value)) {
+	    HistoryState *state = js_get_state(value, HistoryClassID);
+
+	    if (state->pos != 0) {
+		script_chBuf(state->pos);
+		state->pos = 0;
 		return NULL;
 	    }
 	}
     }
 
-    value = JS_EvalStr(interp, "document.location;");
-    if (buf && JS_IsString(value)) {
-	const char *str;
-	size_t len;
-
-	str = JS_ToCStringLen(interp, &len, value);
-	if (len > 0) {
-	    buf->location = allocStr(str, len);
-	}
-	JS_FreeCString(interp, str);
+    value = js_eval(interp, "document.location;");
+    str = js_get_cstr(interp, value);
+    if (str != NULL) {
+	buf->location = str;
     }
 
-    value = JS_EvalStr(interp, "location;");
-    if (JS_IsObject(value)) {
-	lictx = JS_GetOpaque(value, LocationClassID);
-	if (buf && lictx->url && lictx->refresh) {
-	    if (lictx->refresh & JS_LOC_REFRESH) {
-		buf->location = allocStr(lictx->url->ptr, lictx->url->length);
-	    } else if (lictx->refresh & JS_LOC_HASH) {
+    value = js_eval(interp, "location;");
+    if (js_is_object(value)) {
+	LocationState *state = js_get_state(value, LocationClassID);
+	if (buf && state->url && state->refresh) {
+	    if (state->refresh & JS_LOC_REFRESH) {
+		buf->location = allocStr(state->url->ptr, state->url->length);
+	    } else if (state->refresh & JS_LOC_HASH) {
 		Anchor *a;
 #ifdef JP_CHARSET
 		a = searchURLLabel(buf,
-				   conv(lictx->pu.label, buf->document_code,
+				   conv(state->pu.label, buf->document_code,
 					InnerCode)->ptr);
 #else				/* not JP_CHARSET */
-		a = searchURLLabel(buf, lictx->pu.label);
+		a = searchURLLabel(buf, state->pu.label);
 #endif				/* not JP_CHARSET */
 		if (a != NULL) {
 		    gotoLine(buf, a->start.line);
@@ -356,14 +381,76 @@ script_js2buf(Buffer *buf, JSContext *interp)
 		    arrangeCursor(buf);
 		}
 	    }
-	    lictx->refresh = 0;
+	    state->refresh = 0;
 	}
     }
 
-    value = JS_EvalStr(interp, "document;");
-    if (JS_IsObject(value)) {
-	dictx = JS_GetOpaque(value, DocumentClassID);
-	return dictx->write;
+    if (buf->formlist != NULL) {
+	int i;
+	FormList *fl;
+
+	for (i = 0, fl = buf->formlist; fl != NULL; i++, fl = fl->next) {
+	    value = js_eval(interp, Sprintf("document.forms[%d];", i)->ptr);
+	    if (js_is_object(value)) {
+		FormState *state = js_get_state(value, FormClassID);
+		char *cstr;
+		Str str;
+
+		value = js_eval(interp, Sprintf("document.forms[%d].method;", i)->ptr);
+		cstr = js_get_cstr(interp, value);
+		if (cstr != NULL) {
+		    if (strcasecmp(cstr, "post") == 0) {
+			fl->method = FORM_METHOD_POST;
+		    } else if (strcasecmp(cstr, "internal") == 0) {
+			fl->method = FORM_METHOD_INTERNAL;
+		    } else /* if (strcasecmp(cstr, "get") == 0) */ {
+			fl->method = FORM_METHOD_GET;
+		    }
+		}
+
+		value = js_eval(interp, Sprintf("document.forms[%d].action;", i)->ptr);
+		str = js_get_str(interp, value);
+		if (str != NULL) {
+		    fl->action = str;
+		}
+
+		value = js_eval(interp, Sprintf("document.forms[%d].target;", i)->ptr);
+		cstr = js_get_cstr(interp, value);
+		if (cstr != NULL) {
+		    fl->target = cstr;
+		}
+
+		value = js_eval(interp, Sprintf("document.forms[%d].name;", i)->ptr);
+		cstr = js_get_cstr(interp, value);
+		if (cstr != NULL) {
+		    fl->name = cstr;
+		}
+
+		value = js_eval(interp, Sprintf("document.forms[%d].id;", i)->ptr);
+		cstr = js_get_cstr(interp, value);
+		if (cstr != NULL) {
+		    fl->id = cstr;
+		}
+
+		if (state->submit) {
+		    followForm(fl);
+		    state->submit = 0;
+		}
+
+		if (state->reset) {
+		    state->reset = 0;
+		}
+	    }
+	}
+    }
+
+    value = js_eval(interp, "document;");
+    if (js_is_object(value)) {
+	DocumentState *state = js_get_state(value, DocumentClassID);
+
+	if (state->write) {
+	    return state->write;
+	}
     }
 
     return NULL;
@@ -374,15 +461,18 @@ script_js_eval(Buffer *buf, char *script)
 {
     JSContext *interp;
 
-    if (buf && buf->script_interp) {
+    if (buf == NULL) {
+	return NULL;
+    }
+
+    if (buf->script_interp) {
 	interp = buf->script_interp;
     } else {
 	interp = js_html_init();
-	if (buf)
-	    buf->script_interp = (void *)interp;
+	buf->script_interp = (void *)interp;
     }
     script_buf2js(buf, interp);
-    JS_EvalStr(interp, script);
+    js_eval(interp, script);
     return script_js2buf(buf, interp);
 }
 
@@ -390,7 +480,7 @@ static void
 script_js_close(Buffer *buf)
 {
     if (buf && buf->script_interp) {
-	JS_FreeContext(buf->script_interp);
+	js_html_final(buf->script_interp);
 	buf->script_interp = NULL;
     }
 }
@@ -399,17 +489,20 @@ script_js_close(Buffer *buf)
 Str
 script_eval(Buffer *buf, char *lang, char *script)
 {
-    if (buf && buf->location)
+    if (buf == NULL) {
+	return NULL;
+    }
+
+    if (buf->location)
 	buf->location = NULL;
     if (! lang || ! script)
 	return NULL;
-    if (buf) {
-	if (buf->script_lang) {
-	    if (strcasecmp(lang, buf->script_lang))
-		return NULL;
-	} else
-	    buf->script_lang = lang;
-    }
+    if (buf->script_lang) {
+	if (strcasecmp(lang, buf->script_lang))
+	    return NULL;
+    } else
+	buf->script_lang = lang;
+
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
 	! strcasecmp(lang, "jscript"))

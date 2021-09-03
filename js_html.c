@@ -1,4 +1,3 @@
-/* -*- tab-width:8; c-basic-offset:4 -*- */
 #include "fm.h"
 #ifdef USE_JAVASCRIPT
 #include "js_html.h"
@@ -15,15 +14,20 @@ JSClassID FormClassID;
 JSClassID ImageClassID;
 JSClassID CookieClassID;
 
+static void
+window_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, WindowClassID));
+}
+
 static const JSClassDef WindowClass = {
-    "Window", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "Window", window_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 window_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
-    WindowCtx *winctx;
+    WindowState *state;
 
     if (argc != 0) {
 	return JS_EXCEPTION;
@@ -31,11 +35,11 @@ window_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     obj = JS_NewObjectClass(ctx, WindowClassID);
 
-    winctx = (WindowCtx *)GC_MALLOC(sizeof(WindowCtx));
-    winctx->win = newGeneralList();
-    winctx->close = FALSE;
+    state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
+    state->win = newGeneralList();
+    state->close = FALSE;
 
-    JS_SetOpaque(obj, winctx);
+    JS_SetOpaque(obj, state);
 
     return obj;
 }
@@ -43,7 +47,7 @@ window_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    WindowCtx *winctx = JS_GetOpaque(jsThis, WindowClassID);
+    WindowState *state = JS_GetOpaque(jsThis, WindowClassID);
 
     if (argc >= 1) {
 	const char *str[2];
@@ -66,7 +70,7 @@ window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 	    } else {
 		w->name = "";
 	    }
-	    pushValue(winctx->win, (void *)w);
+	    pushValue(state->win, (void *)w);
 	    JS_FreeCString(ctx, str[0]);
 	}
 
@@ -79,9 +83,9 @@ window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 window_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    WindowCtx *winctx = JS_GetOpaque(jsThis, WindowClassID);
+    WindowState *state = JS_GetOpaque(jsThis, WindowClassID);
 
-    winctx->close = TRUE;
+    state->close = TRUE;
 
     return JS_UNDEFINED;
 }
@@ -91,36 +95,34 @@ static const JSCFunctionListEntry WindowFuncs[] = {
     JS_CFUNC_DEF("close", 1, window_close),
 };
 
+static void
+location_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, LocationClassID));
+}
+
 static const JSClassDef LocationClass = {
-    "Location", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "Location", location_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 location_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj = JS_NewObjectClass(ctx, LocationClassID);
-    LocationCtx *loctx = (LocationCtx *)GC_MALLOC(sizeof(LocationCtx));
+    LocationState *state = (LocationState *)GC_MALLOC_UNCOLLECTABLE(sizeof(LocationState));
 
-    bzero(loctx, sizeof(LocationCtx));
+    bzero(state, sizeof(LocationState));
     if (argc > 0) {
-	const char *str;
-	size_t len;
-
-	if ((str = JS_ToCStringLen(ctx, &len, argv[0])) == NULL) {
-	    JS_FreeValue(ctx, obj);
-
+	if ((state->url = js_get_str(ctx, argv[0])) == NULL) {
 	    return JS_EXCEPTION;
 	}
 
-	loctx->url = Strnew_charp_n(str, len);
-	JS_FreeCString(ctx, str);
-	parseURL(loctx->url->ptr, &loctx->pu, NULL);
+	parseURL(state->url->ptr, &state->pu, NULL);
     } else {
-	loctx->url = Strnew();
+	state->url = Strnew();
     }
-    loctx->refresh = 0;
+    state->refresh = 0;
 
-    JS_SetOpaque(obj, loctx);
+    JS_SetOpaque(obj, state);
 
     return obj;
 }
@@ -128,18 +130,16 @@ location_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 location_replace(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    Str str;
 
-    if (argc != 1 || (str = JS_ToCStringLen(ctx, &len, argv[0])) == NULL) {
+    if (argc != 1 || (str = js_get_str(ctx, argv[0])) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->url = Strnew_charp_n(str, len);
-    JS_FreeCString(ctx, str);
-    parseURL(loctx->url->ptr, &loctx->pu, NULL);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->url = str;
+    parseURL(state->url->ptr, &state->pu, NULL);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -147,12 +147,12 @@ location_replace(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
 static JSValue
 location_reload(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
 
     if (argc != 0)
 	return JS_EXCEPTION;
 
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -160,26 +160,24 @@ location_reload(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 static JSValue
 location_href_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
 
-    return JS_NewStringLen(ctx, loctx->url->ptr, loctx->url->length);
+    return JS_NewStringLen(ctx, state->url->ptr, state->url->length);
 }
 
 static JSValue
 location_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    Str str;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((str = js_get_str(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->url = Strnew_charp_n(str, len);
-    JS_FreeCString(ctx, str);
-    parseURL(loctx->url->ptr, &loctx->pu, NULL);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->url = str;
+    parseURL(state->url->ptr, &state->pu, NULL);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -187,11 +185,11 @@ location_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_protocol_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    switch (loctx->pu.scheme) {
+    switch (state->pu.scheme) {
     case SCM_HTTP:
 	Strcat_charp(s, "http:");
 	break;
@@ -233,24 +231,19 @@ location_protocol_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_protocol_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
     char *p;
-    const char *str;
-    size_t len;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((s = js_get_str(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    s = Strnew_charp_n(str, len);
-    JS_FreeCString(ctx, str);
     Strcat_charp(s, ":");
     p = allocStr(s->ptr, s->length);
-    loctx->pu.scheme = getURLScheme(&p);
-    loctx->url = parsedURL2Str(&loctx->pu);
-    fprintf(stderr, "*****URL:%s\n", loctx->url->ptr);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->pu.scheme = getURLScheme(&p);
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -258,14 +251,14 @@ location_protocol_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_host_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    if (loctx->pu.host) {
-	Strcat_charp_n(s, loctx->pu.host, strlen(loctx->pu.host));
-	if (loctx->pu.has_port)
-	    Strcat(s, Sprintf(":%d", loctx->pu.port));
+    if (state->pu.host) {
+	Strcat_charp_n(s, state->pu.host, strlen(state->pu.host));
+	if (state->pu.has_port)
+	    Strcat(s, Sprintf(":%d", state->pu.port));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
 }
@@ -273,26 +266,21 @@ location_host_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_host_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *p, *q;
-    const char *str;
-    size_t len;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((p = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    p = allocStr(str, len);
-    JS_FreeCString(ctx, str);
     if ((q = strchr(p, ':')) != NULL) {
 	*q++ = '\0';
-	loctx->pu.port = atoi(q);
-	loctx->pu.has_port = 1;
+	state->pu.port = atoi(q);
+	state->pu.has_port = 1;
     }
-    loctx->pu.host = Strnew_charp(p)->ptr;
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->pu.host = Strnew_charp(p)->ptr;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -300,12 +288,12 @@ location_host_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_hostname_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    if (loctx->pu.host) {
-	Strcat_charp_n(s, loctx->pu.host, strlen(loctx->pu.host));
+    if (state->pu.host) {
+	Strcat_charp_n(s, state->pu.host, strlen(state->pu.host));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
 }
@@ -313,19 +301,16 @@ location_hostname_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_hostname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->pu.host = allocStr(str, len);
-    JS_FreeCString(ctx, str);
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->pu.host = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -333,11 +318,11 @@ location_hostname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_port_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
-    if (loctx->pu.has_port)
-	s = Sprintf("%d", loctx->pu.port);
+    if (state->pu.has_port)
+	s = Sprintf("%d", state->pu.port);
     else
 	s = Strnew();
     return JS_NewStringLen(ctx, s->ptr, s->length);
@@ -346,24 +331,23 @@ location_port_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_port_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
 
     if (JS_IsString(val)) {
 	const char *str;
 
 	str = JS_ToCString(ctx, val);
-	loctx->pu.port = atoi(str);
+	state->pu.port = atoi(str);
 	JS_FreeCString(ctx, str);
     } else if (JS_IsNumber(val)) {
 	int i;
 	JS_ToInt32(ctx, &i, val);
-	loctx->pu.port = i;
+	state->pu.port = i;
     } else {
 	return JS_EXCEPTION;
     }
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -371,12 +355,12 @@ location_port_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_pathname_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    if (loctx->pu.file) {
-	Strcat_charp_n(s, loctx->pu.file, strlen(loctx->pu.file));
+    if (state->pu.file) {
+	Strcat_charp_n(s, state->pu.file, strlen(state->pu.file));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
 }
@@ -384,19 +368,16 @@ location_pathname_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_pathname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->pu.file = allocStr(str, len);
-    JS_FreeCString(ctx, str);
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->pu.file = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -404,13 +385,13 @@ location_pathname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_search_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    if (loctx->pu.query) {
+    if (state->pu.query) {
 	Strcat_charp(s, "?");
-	Strcat_charp_n(s, loctx->pu.query, strlen(loctx->pu.query));
+	Strcat_charp_n(s, state->pu.query, strlen(state->pu.query));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
 }
@@ -418,19 +399,16 @@ location_search_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_search_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->pu.query = allocStr(str, len);
-    JS_FreeCString(ctx, str);
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_REFRESH;
+    state->pu.query = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
 
     return JS_UNDEFINED;
 }
@@ -438,13 +416,13 @@ location_search_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_hash_get(JSContext *ctx, JSValueConst jsThis)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
     s = Strnew();
-    if (loctx->pu.label) {
+    if (state->pu.label) {
 	Strcat_charp(s, "#");
-	Strcat_charp_n(s, loctx->pu.label, strlen(loctx->pu.label));
+	Strcat_charp_n(s, state->pu.label, strlen(state->pu.label));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
 }
@@ -452,19 +430,16 @@ location_hash_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 location_hash_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationCtx *loctx = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
-    const char *str;
-    size_t len;
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
 
-    if ((str = JS_ToCStringLen(ctx, &len, val)) == NULL) {
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    loctx->pu.label = allocStr(str, len);
-    JS_FreeCString(ctx, str);
-    loctx->url = parsedURL2Str(&loctx->pu);
-    loctx->refresh |= JS_LOC_HASH;
+    state->pu.label = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_HASH;
 
     return JS_UNDEFINED;
 }
@@ -524,31 +499,53 @@ formitem_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     return JS_NewObjectClass(ctx, FormItemClassID);
 }
 
+static void
+form_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, FormClassID));
+}
+
 static const JSClassDef FormClass = {
-    "Form", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "Form", form_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 form_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    JSValue obj;
+    FormState *state;
+
     if (argc != 0) {
 	return JS_EXCEPTION;
     }
 
-    return JS_NewObjectClass(ctx, FormClassID);
+    obj = JS_NewObjectClass(ctx, FormClassID);
+
+    state = (FormState *)GC_MALLOC_UNCOLLECTABLE(sizeof(FormState));
+    memset(state, 0, sizeof(*state));
+
+    JS_SetOpaque(obj, state);
+
+    return obj;
 }
 
 static JSValue
 form_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    /* TODO: form submit flag on */
+    FormState *state = JS_GetOpaque(jsThis, FormClassID);
+
+    state->submit = 1;
+
     return JS_UNDEFINED;
 }
 
 static JSValue
 form_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    /* TODO: form reset flag on */
+    FormState *state = JS_GetOpaque(jsThis, FormClassID);
+
+    /* reset() isn't implemented (see script.c) */
+    state->reset = 1;
+
     return JS_UNDEFINED;
 }
 
@@ -571,15 +568,20 @@ anchor_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     return JS_NewObjectClass(ctx, AnchorClassID);
 }
 
+static void
+history_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, HistoryClassID));
+}
+
 static const JSClassDef HistoryClass = {
-    "History", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "History", history_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 history_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
-    HistoryCtx *hisctx;
+    HistoryState *state;
 
     if (argc != 0) {
 	return JS_EXCEPTION;
@@ -587,10 +589,10 @@ history_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     obj = JS_NewObjectClass(ctx, HistoryClassID);
 
-    hisctx = (HistoryCtx *)GC_MALLOC(sizeof(HistoryCtx));
-    hisctx->pos = 0;
+    state = (HistoryState *)GC_MALLOC_UNCOLLECTABLE(sizeof(HistoryState));
+    state->pos = 0;
 
-    JS_SetOpaque(obj, hisctx);
+    JS_SetOpaque(obj, state);
 
     return obj;
 }
@@ -598,9 +600,9 @@ history_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 history_back(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    HistoryCtx *hisctx = JS_GetOpaque(jsThis, HistoryClassID);
+    HistoryState *state = JS_GetOpaque(jsThis, HistoryClassID);
 
-    hisctx->pos = -1;
+    state->pos = -1;
 
     return JS_UNDEFINED;
 }
@@ -608,9 +610,9 @@ history_back(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 history_forward(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    HistoryCtx *hisctx = JS_GetOpaque(jsThis, HistoryClassID);
+    HistoryState *state = JS_GetOpaque(jsThis, HistoryClassID);
 
-    hisctx->pos = 1;
+    state->pos = 1;
 
     return JS_UNDEFINED;
 }
@@ -618,7 +620,7 @@ history_forward(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 static JSValue
 history_go(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    HistoryCtx *hisctx = JS_GetOpaque(jsThis, HistoryClassID);
+    HistoryState *state = JS_GetOpaque(jsThis, HistoryClassID);
     int i;
 
     if (argc != 1 || !JS_IsNumber(argv[0])) {
@@ -626,7 +628,7 @@ history_go(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     }
 
     JS_ToInt32(ctx, &i, argv[0]);
-    hisctx->pos = i;
+    state->pos = i;
 
     return JS_UNDEFINED;
 }
@@ -637,15 +639,20 @@ static const JSCFunctionListEntry HistoryFuncs[] = {
     JS_CFUNC_DEF("go", 1, history_go),
 };
 
+static void
+navigator_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, NavigatorClassID));
+}
+
 static const JSClassDef NavigatorClass = {
-    "Navigator", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "Navigator", navigator_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
-    NavigatorCtx *nvctx;
+    NavigatorState *state;
 
     if (argc != 0) {
 	return JS_EXCEPTION;
@@ -653,13 +660,13 @@ navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     obj = JS_NewObjectClass(ctx, NavigatorClassID);
 
-    nvctx = (NavigatorCtx *)GC_MALLOC(sizeof(NavigatorCtx));
-    nvctx->appcodename = NULL;
-    nvctx->appname = NULL;
-    nvctx->appversion = NULL;
-    nvctx->useragent = NULL;
+    state = (NavigatorState *)GC_MALLOC_UNCOLLECTABLE(sizeof(NavigatorState));
+    state->appcodename = NULL;
+    state->appname = NULL;
+    state->appversion = NULL;
+    state->useragent = NULL;
 
-    JS_SetOpaque(obj, nvctx);
+    JS_SetOpaque(obj, state);
 
     return obj;
 }
@@ -667,29 +674,29 @@ navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 navigator_appcodename_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorCtx *nvctx = JS_GetOpaque(jsThis, NavigatorClassID);
+    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
 
-    if (! nvctx->appcodename)
-	nvctx->appcodename = Strnew_charp("w3m");
+    if (! state->appcodename)
+	state->appcodename = Strnew_charp("w3m");
 
-    return JS_NewStringLen(ctx, nvctx->appcodename->ptr, nvctx->appcodename->length);
+    return JS_NewStringLen(ctx, state->appcodename->ptr, state->appcodename->length);
 }
 
 static JSValue
 navigator_appname_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorCtx *nvctx = JS_GetOpaque(jsThis, NavigatorClassID);
+    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
 
-    if (! nvctx->appname)
-	nvctx->appname = Strnew_charp("w3m");
+    if (! state->appname)
+	state->appname = Strnew_charp("w3m");
 
-    return JS_NewStringLen(ctx, nvctx->appname->ptr, nvctx->appname->length);
+    return JS_NewStringLen(ctx, state->appname->ptr, state->appname->length);
 }
 
 static JSValue
 navigator_appversion_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorCtx *nvctx = JS_GetOpaque(jsThis, NavigatorClassID);
+    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
 #if LANG == JA
     const char *lang = "ja-JP";
 #else
@@ -700,7 +707,7 @@ navigator_appversion_get(JSContext *ctx, JSValueConst jsThis)
     char *p;
     int n;
 
-    if (! nvctx->appversion) {
+    if (! state->appversion) {
 	if (uname(&unamebuf) == -1) {
 	    platform = "Unknown";
 	} else {
@@ -713,28 +720,28 @@ navigator_appversion_get(JSContext *ctx, JSValueConst jsThis)
 	    if (n > 0) {
 		Str rnum = Strnew();
 		Strcopy_charp_n(rnum, p, n);
-		nvctx->appversion = Sprintf("%s (%s; %s)", rnum->ptr, platform, lang);
+		state->appversion = Sprintf("%s (%s; %s)", rnum->ptr, platform, lang);
 		Strfree(rnum);
 	    }
 	}
     }
 
-    return JS_NewStringLen(ctx, nvctx->appversion->ptr, nvctx->appversion->length);
+    return JS_NewStringLen(ctx, state->appversion->ptr, state->appversion->length);
 }
 
 static JSValue
 navigator_useragent_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorCtx *nvctx = JS_GetOpaque(jsThis, NavigatorClassID);
+    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
 
-    if (! nvctx->useragent) {
+    if (! state->useragent) {
 	if (UserAgent == NULL || *UserAgent == '\0')
-	    nvctx->useragent = Strnew_charp(w3m_version);
+	    state->useragent = Strnew_charp(w3m_version);
 	else
-	    nvctx->useragent = Strnew_charp(UserAgent);
+	    state->useragent = Strnew_charp(UserAgent);
     }
 
-    return JS_NewStringLen(ctx, nvctx->useragent->ptr, nvctx->useragent->length);
+    return JS_NewStringLen(ctx, state->useragent->ptr, state->useragent->length);
 }
 
 static const JSCFunctionListEntry NavigatorFuncs[] = {
@@ -744,15 +751,20 @@ static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("userAgent", navigator_useragent_get, NULL),
 };
 
+static void
+document_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, DocumentClassID));
+}
+
 static const JSClassDef DocumentClass = {
-    "Document", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+    "Document", document_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
 document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
-    DocumentCtx *dctx;
+    DocumentState *state;
 
     if (argc != 0) {
 	return JS_EXCEPTION;
@@ -760,10 +772,10 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     obj = JS_NewObjectClass(ctx, DocumentClassID);
 
-    dctx = (DocumentCtx *)GC_MALLOC(sizeof(DocumentCtx));
-    dctx->write = NULL;
+    state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
+    state->write = NULL;
 
-    JS_SetOpaque(obj, dctx);
+    JS_SetOpaque(obj, state);
 
     return obj;
 }
@@ -771,11 +783,11 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 document_write(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    DocumentCtx *dctx = JS_GetOpaque(jsThis, DocumentClassID);
+    DocumentState *state = JS_GetOpaque(jsThis, DocumentClassID);
     int i;
 
-    if (! dctx->write)
-	dctx->write = Strnew();
+    if (! state->write)
+	state->write = Strnew();
 
     for (i = 0; i < argc; i++) {
 	if (JS_IsString(argv[i])) {
@@ -783,15 +795,15 @@ document_write(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 	    size_t len;
 
 	    str = JS_ToCStringLen(ctx, &len, argv[i]);
-	    Strcat_charp_n(dctx->write, str, len);
+	    Strcat_charp_n(state->write, str, len);
 	    JS_FreeCString(ctx, str);
 	} else if (JS_IsBool(argv[i])) {
-	    Strcat_charp(dctx->write, JS_ToBool(ctx, argv[i]) ? "true" : "false");
+	    Strcat_charp(state->write, JS_ToBool(ctx, argv[i]) ? "true" : "false");
 	} else if (JS_IsNumber(argv[i])) {
 	    int j;
 
 	    JS_ToInt32(ctx, &j, argv[i]);
-	    Strcat(dctx->write, Sprintf("%d", j));
+	    Strcat(state->write, Sprintf("%d", j));
 	}
     }
 
@@ -801,10 +813,10 @@ document_write(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 static JSValue
 document_writeln(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    DocumentCtx *dctx = JS_GetOpaque(jsThis, DocumentClassID);
+    DocumentState *state = JS_GetOpaque(jsThis, DocumentClassID);
 
     document_write(ctx, jsThis, argc, argv);
-    Strcat_charp(dctx->write, "\n");
+    Strcat_charp(state->write, "\n");
 
     return JS_UNDEFINED;
 }
@@ -939,5 +951,58 @@ js_html_init(void)
     JS_FreeValue(ctx, gl);
 
     return ctx;
+}
+
+JSValue
+js_eval(JSContext *ctx, char *str) {
+    JSValue ret = JS_Eval(ctx, str, strlen(str), "<input>", 0 /* JS_EVAL_FLAG_STRICT */);
+
+    if (JS_IsException(ret)) {
+	JSValue err = JS_GetException(ctx);
+#ifdef SCRIPT_DEBUG
+	const char *err_str = JS_ToCString(ctx, err);
+	FILE *fp = fopen("scriptlog.txt", "a");
+	fprintf(fp, "<%s>\n%s\n", err_str, str);
+	JS_FreeCString(ctx, err_str);
+	fclose(fp);
+#endif
+	JS_FreeValue(ctx, err);
+    }
+
+    return ret;
+}
+
+char *
+js_get_cstr(JSContext *ctx, JSValue value)
+{
+    const char *str;
+    size_t len;
+    char *new_str;
+
+    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	return NULL;
+    }
+
+    new_str = allocStr(str, len);
+    JS_FreeCString(ctx, str);
+
+    return new_str;
+}
+
+Str
+js_get_str(JSContext *ctx, JSValue value)
+{
+    const char *str;
+    size_t len;
+    Str new_str;
+
+    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	return NULL;
+    }
+
+    new_str = Strnew_charp_n(str, len);
+    JS_FreeCString(ctx, str);
+
+    return new_str;
 }
 #endif

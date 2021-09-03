@@ -60,7 +60,7 @@ extern void followA(void);
 extern void bufferA(void);
 extern void followI(void);
 extern void submitForm(void);
-extern void followForm(void);
+extern void followForm(FormList *);
 extern void topA(void);
 extern void lastA(void);
 extern void nthA(void);
@@ -427,7 +427,7 @@ extern void feed_table1(struct table *tbl, Str tok, struct table_mode *mode,
 			int width);
 extern void pushTable(struct table *, struct table *);
 extern struct form_list *newFormList(char *action, char *method, char *charset,
-				     char *enctype, char *target, char *name,
+				     char *enctype, char *target, char *name, char *id,
 				     struct form_list *_next);
 extern struct form_item_list *formList_addInput(struct form_list *fl,
 						struct parsed_tag *tag);
