@@ -57,6 +57,9 @@ typedef struct form_list {
     char *body;
     char *boundary;
     unsigned long length;
+#ifdef USE_SCRIPT
+    char *onsubmit;
+#endif
 } FormList;
 
 #ifdef MENU_SELECT
@@ -96,6 +99,7 @@ typedef struct form_item_list {
 #endif				/* MENU_SELECT */
 #ifdef USE_SCRIPT
     Str onclick;
+    Str onkeyup;
 #endif
     struct form_list *parent;
     struct form_item_list *next;

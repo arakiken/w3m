@@ -241,10 +241,10 @@ extern Str process_textarea(struct parsed_tag *tag, int width);
 extern Str process_n_textarea(void);
 extern void feed_textarea(char *str);
 #ifdef USE_SCRIPT
-extern Str process_script(struct parsed_tag *tag, struct html_feed_environ *h_env);
+extern void process_script(struct parsed_tag *tag, struct html_feed_environ *h_env);
 extern Str process_n_script(struct html_feed_environ *h_env);
 extern void feed_script(char *str, struct html_feed_environ *h_env);
-extern Str script_eval(Buffer *buf, char *lang, char *script);
+extern int script_eval(Buffer *buf, char *lang, char *script, Str *output);
 extern void script_close(Buffer *buf);
 extern void jWindowOpen(Buffer *buf, char *url, char *target);
 #endif
@@ -428,7 +428,7 @@ extern void feed_table1(struct table *tbl, Str tok, struct table_mode *mode,
 extern void pushTable(struct table *, struct table *);
 extern struct form_list *newFormList(char *action, char *method, char *charset,
 				     char *enctype, char *target, char *name, char *id,
-				     struct form_list *_next);
+				     char *onsubmit, struct form_list *_next);
 extern struct form_item_list *formList_addInput(struct form_list *fl,
 						struct parsed_tag *tag);
 extern char *form2str(FormItemList *fi);
@@ -840,3 +840,5 @@ long lrand48(void);
 #endif
 
 extern Str base64_encode(const unsigned char *src, size_t len);
+
+extern int get_pixel_per_cell(int *ppc, int *ppl);

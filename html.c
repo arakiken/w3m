@@ -9,8 +9,8 @@
 /* %event: onclick, ondblclick, onmousedown, onmouseup,
   onmouseover, onmousemove, onmouseout, onkeypress,
   onkeydown, onkeyup */
-#define ATTR_EVENTS    ATTR_ONCLICK, ATTR_ONKEYPRESS
-#define MAXA_EVENTS    2
+#define ATTR_EVENTS    ATTR_ONCLICK, ATTR_ONKEYUP, ATTR_ONKEYDOWN, ATTR_ONKEYPRESS
+#define MAXA_EVENTS    4
 
 unsigned char ALST_A[] = {
     ATTR_NAME, ATTR_HREF, ATTR_REL, ATTR_CHARSET, ATTR_TARGET, ATTR_HSEQ,
@@ -120,16 +120,16 @@ unsigned char ALST_TITLE_ALT[] = { ATTR_TITLE };
 #define MAXA_TITLE_ALT	1
 unsigned char ALST_FORM_INT[] =
     { ATTR_METHOD, ATTR_ACTION, ATTR_CHARSET, ATTR_ACCEPT_CHARSET,
-    ATTR_ENCTYPE, ATTR_TARGET, ATTR_NAME, ATTR_FID
+    ATTR_ENCTYPE, ATTR_TARGET, ATTR_NAME, ATTR_FID, ATTR_ONSUBMIT, ATTR_CORE,
 };
-#define MAXA_FORM_INT  8
+#define MAXA_FORM_INT  MAXA_CORE + 9
 unsigned char ALST_INPUT_ALT[] =
-    { ATTR_HSEQ, ATTR_FID, ATTR_NO_EFFECT, ATTR_TYPE, ATTR_NAME, ATTR_VALUE,
+    { ATTR_HSEQ, ATTR_FID, ATTR_NO_EFFECT, ATTR_TYPE, ATTR_NAME, ATTR_CORE, ATTR_VALUE,
     ATTR_CHECKED, ATTR_ACCEPT, ATTR_SIZE, ATTR_MAXLENGTH, ATTR_READONLY,
     ATTR_TEXTAREANUMBER, ATTR_EVENTS,
     ATTR_SELECTNUMBER, ATTR_ROWS, ATTR_TOP_MARGIN, ATTR_BOTTOM_MARGIN
 };
-#define MAXA_INPUT_ALT  16 + MAXA_EVENTS
+#define MAXA_INPUT_ALT  17 + MAXA_EVENTS
 unsigned char ALST_IMG_ALT[] =
     { ATTR_SRC, ATTR_WIDTH, ATTR_HEIGHT, ATTR_USEMAP, ATTR_ISMAP, ATTR_HSEQ,
     ATTR_XOFFSET, ATTR_YOFFSET, ATTR_TOP_MARGIN, ATTR_BOTTOM_MARGIN,
@@ -386,27 +386,33 @@ TagAttrInfo AttrMAP[MAX_TAGATTR] = {
     {"public", VTYPE_NONE, 0},	/* 51 ATTR_PUBLIC         */
     {"language", VTYPE_STR, 0},	/* 52 ATTR_LANGUAGE           */
     {"onclick", VTYPE_STR, 0},	/* 53 ATTR_ONCLICK           */
-    {"onkeypress", VTYPE_STR, 0},	/* 54 ATTR_ONKEYPRESS           */
-    {"onsubmit", VTYPE_STR, 0},	/* 55 ATTR_ONSUBMIT           */
-    {"onreset", VTYPE_STR, 0},	/* 56 ATTR_ONRESET           */
-    {"onselect", VTYPE_STR, 0},	/* 57 ATTR_ONSELECT           */
-    {"onchange", VTYPE_STR, 0},	/* 58 ATTR_ONCHANGE           */
-    {NULL, VTYPE_NONE, 0},	/* 59 Undefined           */
+    {"onkeyup", VTYPE_STR, 0},	/* 54 ATTR_ONKEYUP           */
+    {"onkeydown", VTYPE_STR, 0},	/* 55 ATTR_ONKEYUP           */
+    {"onkeypress", VTYPE_STR, 0},	/* 56 ATTR_ONKEYPRESS           */
+    {"onsubmit", VTYPE_STR, 0},	/* 57 ATTR_ONSUBMIT           */
+    {"onreset", VTYPE_STR, 0},	/* 58 ATTR_ONRESET           */
+    {"onselect", VTYPE_STR, 0},	/* 59 ATTR_ONSELECT           */
+    {"onchange", VTYPE_STR, 0},	/* 60 ATTR_ONCHANGE           */
+
+    {NULL, VTYPE_NONE, 0},		/* 61 Undefined */
+    {NULL, VTYPE_NONE, 0},		/* 62 Undefined */
+    {NULL, VTYPE_NONE, 0},		/* 63 Undefined */
+    {NULL, VTYPE_NONE, 0},		/* 64 Undefined */
 
     /* Internal attribute */
-    {"xoffset", VTYPE_NUMBER, AFLG_INT},	/* 60 ATTR_XOFFSET        */
-    {"yoffset", VTYPE_NUMBER, AFLG_INT},	/* 61 ATTR_YOFFSET        */
-    {"top_margin", VTYPE_NUMBER, AFLG_INT},	/* 62 ATTR_TOP_MARGIN,    */
-    {"bottom_margin", VTYPE_NUMBER, AFLG_INT},	/* 63 ATTR_BOTTOM_MARGIN, */
-    {"tid", VTYPE_NUMBER, AFLG_INT},	/* 64 ATTR_TID            */
-    {"fid", VTYPE_NUMBER, AFLG_INT},	/* 65 ATTR_FID            */
-    {"for_table", VTYPE_NONE, AFLG_INT},	/* 66 ATTR_FOR_TABLE      */
-    {"framename", VTYPE_STR, AFLG_INT},	/* 67 ATTR_FRAMENAME      */
-    {"hborder", VTYPE_NONE, 0},	/* 68 ATTR_HBORDER        */
-    {"hseq", VTYPE_NUMBER, AFLG_INT},	/* 69 ATTR_HSEQ           */
-    {"no_effect", VTYPE_NONE, AFLG_INT},	/* 70 ATTR_NO_EFFECT      */
-    {"referer", VTYPE_STR, AFLG_INT},	/* 71 ATTR_REFERER        */
-    {"selectnumber", VTYPE_NUMBER, AFLG_INT},	/* 72 ATTR_SELECTNUMBER   */
-    {"textareanumber", VTYPE_NUMBER, AFLG_INT},	/* 73 ATTR_TEXTAREANUMBER */
-    {"pre_int", VTYPE_NONE, AFLG_INT},	/* 74 ATTR_PRE_INT      */
+    {"xoffset", VTYPE_NUMBER, AFLG_INT},	/* 65 ATTR_XOFFSET        */
+    {"yoffset", VTYPE_NUMBER, AFLG_INT},	/* 66 ATTR_YOFFSET        */
+    {"top_margin", VTYPE_NUMBER, AFLG_INT},	/* 67 ATTR_TOP_MARGIN,    */
+    {"bottom_margin", VTYPE_NUMBER, AFLG_INT},	/* 68 ATTR_BOTTOM_MARGIN, */
+    {"tid", VTYPE_NUMBER, AFLG_INT},	/* 69 ATTR_TID            */
+    {"fid", VTYPE_NUMBER, AFLG_INT},	/* 70 ATTR_FID            */
+    {"for_table", VTYPE_NONE, AFLG_INT},	/* 71 ATTR_FOR_TABLE      */
+    {"framename", VTYPE_STR, AFLG_INT},	/* 72 ATTR_FRAMENAME      */
+    {"hborder", VTYPE_NONE, 0},	/* 73 ATTR_HBORDER        */
+    {"hseq", VTYPE_NUMBER, AFLG_INT},	/* 74 ATTR_HSEQ           */
+    {"no_effect", VTYPE_NONE, AFLG_INT},	/* 75 ATTR_NO_EFFECT      */
+    {"referer", VTYPE_STR, AFLG_INT},	/* 76 ATTR_REFERER        */
+    {"selectnumber", VTYPE_NUMBER, AFLG_INT},	/* 77 ATTR_SELECTNUMBER   */
+    {"textareanumber", VTYPE_NUMBER, AFLG_INT},	/* 78 ATTR_TEXTAREANUMBER */
+    {"pre_int", VTYPE_NONE, AFLG_INT},	/* 79 ATTR_PRE_INT      */
 };

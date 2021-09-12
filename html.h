@@ -327,30 +327,32 @@ typedef struct {
 #define ATTR_PUBLIC		51
 #define ATTR_LANGUAGE		52
 #define ATTR_ONCLICK		53
-#define ATTR_ONKEYPRESS		54
-#define ATTR_ONSUBMIT		55
-#define ATTR_ONRESET		56
-#define ATTR_ONSELECT		57
-#define ATTR_ONCHANGE		58
+#define ATTR_ONKEYUP		54
+#define ATTR_ONKEYDOWN		55
+#define ATTR_ONKEYPRESS		56
+#define ATTR_ONSUBMIT		57
+#define ATTR_ONRESET		58
+#define ATTR_ONSELECT		59
+#define ATTR_ONCHANGE		60
 
 /* Internal attribute */
-#define ATTR_XOFFSET		60
-#define ATTR_YOFFSET		61
-#define ATTR_TOP_MARGIN		62
-#define ATTR_BOTTOM_MARGIN	63
-#define ATTR_TID		64
-#define ATTR_FID		65
-#define ATTR_FOR_TABLE		66
-#define ATTR_FRAMENAME		67
-#define ATTR_HBORDER		68
-#define ATTR_HSEQ		69
-#define ATTR_NO_EFFECT		70
-#define ATTR_REFERER		71
-#define ATTR_SELECTNUMBER	72
-#define ATTR_TEXTAREANUMBER	73
-#define ATTR_PRE_INT		74
+#define ATTR_XOFFSET		65
+#define ATTR_YOFFSET		66
+#define ATTR_TOP_MARGIN		67
+#define ATTR_BOTTOM_MARGIN	68
+#define ATTR_TID		69
+#define ATTR_FID		70
+#define ATTR_FOR_TABLE		71
+#define ATTR_FRAMENAME		72
+#define ATTR_HBORDER		73
+#define ATTR_HSEQ		74
+#define ATTR_NO_EFFECT		75
+#define ATTR_REFERER		76
+#define ATTR_SELECTNUMBER	77
+#define ATTR_TEXTAREANUMBER	78
+#define ATTR_PRE_INT		79
 
-#define MAX_TAGATTR		75
+#define MAX_TAGATTR		80
 
 /* HTML Tag Information Table */
 

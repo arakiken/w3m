@@ -3,16 +3,25 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
+#define NUM_TAGNAMES 1
+#define TN_FORM 0
+
+#if 1
+#define EVAL_FLAG 0
+#else
+#define EVAL_FLAG JS_EVAL_FLAG_STRICT
+#endif
+
 JSClassID WindowClassID;
 JSClassID LocationClassID;
 JSClassID DocumentClassID;
 JSClassID NavigatorClassID;
 JSClassID HistoryClassID;
-JSClassID AnchorClassID;
-JSClassID FormItemClassID;
-JSClassID FormClassID;
-JSClassID ImageClassID;
-JSClassID CookieClassID;
+JSClassID HTMLFormElementClassID;
+JSClassID HTMLElementClassID;
+JSClassID ElementClassID;
+
+char *alert_msg;
 
 static void
 window_final(JSRuntime *rt, JSValue val) {
@@ -62,7 +71,7 @@ window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 	}
 
 	if (str[0] != NULL) {
-	    jse_windowopen_t *w = (jse_windowopen_t *)GC_MALLOC(sizeof(jse_windowopen_t));
+	    OpenWindow *w = (OpenWindow *)GC_MALLOC(sizeof(OpenWindow));
 	    w->url = allocStr(str[0], len[0]);
 	    if (str[1] != NULL) {
 		w->name = allocStr(str[1], len[1]);
@@ -74,7 +83,7 @@ window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 	    JS_FreeCString(ctx, str[0]);
 	}
 
-	return jsThis; /* XXX */
+	return JS_DupValue(ctx, jsThis); /* XXX segfault without this by returining jsThis. */
     }
 
     return JS_EXCEPTION;
@@ -90,9 +99,62 @@ window_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     return JS_UNDEFINED;
 }
 
+static JSValue
+window_alert(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *str;
+    size_t len;
+
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    str = JS_ToCStringLen(ctx, &len, argv[0]);
+    if (!str) {
+	return JS_EXCEPTION;
+    }
+    alert_msg = allocStr(str, len);
+    JS_FreeCString(ctx, str);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+window_confirm(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *str;
+    char *ans;
+
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    str = JS_ToCString(ctx, argv[0]);
+    if (!str) {
+	return JS_EXCEPTION;
+    }
+    ans = inputChar(Sprintf("%s (y/n)", u2ic(str))->ptr);
+    JS_FreeCString(ctx, str);
+
+    if (ans && TOLOWER(*ans) == 'y') {
+	return JS_TRUE;
+    } else {
+	return JS_FALSE;
+    }
+}
+
+static JSValue
+window_get_computed_style(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry WindowFuncs[] = {
     JS_CFUNC_DEF("open", 1, window_open),
     JS_CFUNC_DEF("close", 1, window_close),
+    JS_CFUNC_DEF("alert", 1, window_alert),
+    JS_CFUNC_DEF("confirm", 1, window_confirm),
+    JS_CFUNC_DEF("getComputedStyle", 1, window_get_computed_style),
 };
 
 static void
@@ -457,70 +519,51 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CGETSET_DEF("hash", location_hash_get, location_hash_set),
 };
 
-static const JSClassDef CookieClass = {
-    "Cookie", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
-};
-
-static JSValue
-cookie_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
-    return JS_NewObjectClass(ctx, CookieClassID);
+static void
+form_element_final(JSRuntime *rt, JSValue val) {
+    GC_FREE(JS_GetOpaque(val, HTMLFormElementClassID));
 }
 
-static const JSClassDef ImageClass = {
-    "Image", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+static const JSClassDef HTMLFormElementClass = {
+    "HTMLFormElement", form_element_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
-
-static JSValue
-image_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
-    return JS_NewObjectClass(ctx, ImageClassID);
-}
-
-static const JSClassDef FormItemClass = {
-    "FormItem", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
-};
-
-static JSValue
-formitem_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
-    return JS_NewObjectClass(ctx, FormItemClassID);
-}
 
 static void
-form_final(JSRuntime *rt, JSValue val) {
-    GC_FREE(JS_GetOpaque(val, FormClassID));
+set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
+{
+    JSValue cw;
+    JSValue array;
+
+    JS_SetPropertyStr(ctx, obj, "style", JS_NewObject(ctx));
+    cw = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, cw, "document", JS_NewObjectClass(ctx, DocumentClassID));
+    JS_SetPropertyStr(ctx, obj, "contentWindow", cw);
+    array = JS_NewArray(ctx);
+    JS_SetPropertyStr(ctx, obj, "children", array);
+    JS_SetPropertyStr(ctx, obj, "childNodes", JS_DupValue(ctx, array)); /* XXX */
+    JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
 }
 
-static const JSClassDef FormClass = {
-    "Form", form_final, NULL /* gc_mark */, NULL /* call */, NULL
-};
-
 static JSValue
-form_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
-    FormState *state;
+    JSValue *tagnames;
+    HTMLFormElementState *state;
 
     if (argc != 0) {
 	return JS_EXCEPTION;
     }
 
-    obj = JS_NewObjectClass(ctx, FormClassID);
+    tagnames = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(tagnames[TN_FORM])) {
+	tagnames[TN_FORM] = JS_NewString(ctx, "form");
+    }
 
-    state = (FormState *)GC_MALLOC_UNCOLLECTABLE(sizeof(FormState));
+    obj = JS_NewObjectClass(ctx, HTMLFormElementClassID);
+    set_element_property(ctx, obj, tagnames[TN_FORM]);
+
+    state = (HTMLFormElementState *)GC_MALLOC_UNCOLLECTABLE(sizeof(HTMLFormElementState));
     memset(state, 0, sizeof(*state));
 
     JS_SetOpaque(obj, state);
@@ -529,9 +572,9 @@ form_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 }
 
 static JSValue
-form_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+form_element_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    FormState *state = JS_GetOpaque(jsThis, FormClassID);
+    HTMLFormElementState *state = JS_GetOpaque(jsThis, HTMLFormElementClassID);
 
     state->submit = 1;
 
@@ -539,9 +582,9 @@ form_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 }
 
 static JSValue
-form_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+form_element_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    FormState *state = JS_GetOpaque(jsThis, FormClassID);
+    HTMLFormElementState *state = JS_GetOpaque(jsThis, HTMLFormElementClassID);
 
     /* reset() isn't implemented (see script.c) */
     state->reset = 1;
@@ -549,24 +592,165 @@ form_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     return JS_UNDEFINED;
 }
 
-static const JSCFunctionListEntry FormFuncs[] = {
-    JS_CFUNC_DEF("submit", 1, form_submit),
-    JS_CFUNC_DEF("reset", 1, form_reset),
-};
-
-static const JSClassDef AnchorClass = {
-    "Anchor", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+static const JSClassDef HTMLElementClass = {
+    "HTMLElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static JSValue
-anchor_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+html_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    JSValue obj;
+
+    if (argc != 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLElementClassID);
+    set_element_property(ctx, obj, argv[0]);
+
+    return obj;
+}
+
+static const JSClassDef ElementClass = {
+    "Element", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+
+    if (argc != 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    obj = JS_NewObjectClass(ctx, ElementClassID);
+    set_element_property(ctx, obj, argv[0]);
+
+    return obj;
+}
+
+static JSValue
+element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue val;
+    JSValue prop;
+    JSValue vret;
+    int32_t iret;
+
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+#if 0
+    FILE *fp = fopen("w3mlog.txt", "a");
+    fprintf(fp, "Ref count %d\n", ((JSRefCountHeader*)JS_VALUE_GET_PTR(argv[0]))->ref_count);
+    fclose(fp);
+#endif
+
+    val = JS_GetPropertyStr(ctx, argv[0], "id");
+    if (JS_IsString(val)) {
+	const char *id = JS_ToCString(ctx, val);
+	JS_SetPropertyStr(ctx, jsThis, id, JS_DupValue(ctx, argv[0]));
+	JS_FreeCString(ctx, id);
+    }
+    JS_FreeValue(ctx, val);
+
+    JS_SetPropertyStr(ctx, argv[0], "parentNode", JS_DupValue(ctx, jsThis));
+
+#if 0
+    fp = fopen("w3mlog.txt", "a");
+    fprintf(fp, "Ref count %d after JS_SetPropertyStr(JS_DupValue())\n",
+	    ((JSRefCountHeader*)JS_VALUE_GET_PTR(argv[0]))->ref_count);
+    fclose(fp);
+#endif
+
+    val = JS_GetPropertyStr(ctx, jsThis, "children");
+    prop = JS_GetPropertyStr(ctx, val, "push");
+    vret = JS_Call(ctx, prop, val, 1, argv);
+    JS_FreeValue(ctx, val);
+    JS_FreeValue(ctx, prop);
+
+    JS_ToInt32(ctx, &iret, vret);
+    JS_FreeValue(ctx, vret);
+
+#if 0
+    fp = fopen("w3mlog.txt", "a");
+    fprintf(fp, "Ref count %d after array.push()\n",
+	    ((JSRefCountHeader*)JS_VALUE_GET_PTR(argv[0]))->ref_count);
+    fclose(fp);
+#endif
+
+    if (iret > 0) {
+	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
+    } else {
+	return JS_EXCEPTION;
+    }
+}
+
+static JSValue
+element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    /* XXX Not implemented. */
+
+    return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
+}
+
+static JSValue
+element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *key;
+
+    if (argc != 2) {
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	key = JS_ToCString(ctx, argv[0]);
+	JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
+	JS_FreeCString(ctx, key);
+    }
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_get_bounding_client_rect(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue rect;
+
     if (argc != 0) {
 	return JS_EXCEPTION;
     }
 
-    return JS_NewObjectClass(ctx, AnchorClassID);
+    rect = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, rect, "x", JS_NewFloat64(ctx, 0.0));
+    JS_SetPropertyStr(ctx, rect, "y", JS_NewFloat64(ctx, 0.0));
+    JS_SetPropertyStr(ctx, rect, "width", JS_NewFloat64(ctx, 10.0));
+    JS_SetPropertyStr(ctx, rect, "height", JS_NewFloat64(ctx,10.0));
+    JS_SetPropertyStr(ctx, rect, "left", JS_NewFloat64(ctx, 0.0));
+    JS_SetPropertyStr(ctx, rect, "top", JS_NewFloat64(ctx, 0.0));
+    JS_SetPropertyStr(ctx, rect, "right", JS_NewFloat64(ctx, 10.0));
+    JS_SetPropertyStr(ctx, rect, "bottom", JS_NewFloat64(ctx, 10.0));
+
+    return rect;
 }
+
+static const JSCFunctionListEntry ElementFuncs[] = {
+    /* HTMLElement */
+    JS_CFUNC_DEF("appendChild", 1, element_append_child),
+    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
+    JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
+    JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
+
+    /* HTMLFormElement */
+    JS_CFUNC_DEF("submit", 1, form_element_submit),
+    JS_CFUNC_DEF("reset", 1, form_element_reset),
+};
 
 static void
 history_final(JSRuntime *rt, JSValue val) {
@@ -771,9 +955,11 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     }
 
     obj = JS_NewObjectClass(ctx, DocumentClassID);
+    JS_SetPropertyStr(ctx, obj, "children", JS_NewArray(ctx));
 
     state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
     state->write = NULL;
+    state->cookie = NULL;
 
     JS_SetOpaque(obj, state);
 
@@ -821,9 +1007,51 @@ document_writeln(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     return JS_UNDEFINED;
 }
 
+static JSValue
+document_location_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_Eval(ctx, "location;", 9, "<input>", EVAL_FLAG);
+}
+
+static JSValue
+document_location_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    return location_href_set(ctx, JS_Eval(ctx, "location;", 9, "<input>", EVAL_FLAG), val);
+}
+
+static JSValue
+document_cookie_get(JSContext *ctx, JSValueConst jsThis)
+{
+    DocumentState *state = JS_GetOpaque(jsThis, DocumentClassID);
+
+    if (state->cookie) {
+	return JS_NewStringLen(ctx, state->cookie->ptr, state->cookie->length);
+    } else {
+	return JS_NewString(ctx, "");
+    }
+}
+
+static JSValue
+document_cookie_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    DocumentState *state = JS_GetOpaque(jsThis, DocumentClassID);
+    const char *cookie = JS_ToCString(ctx, val);
+
+    if (cookie != NULL) {
+	state->cookie = Strnew_charp(cookie);
+	state->cookie_changed = 1;
+    }
+
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CFUNC_DEF("write", 1, document_write),
     JS_CFUNC_DEF("writeln", 1, document_writeln),
+    JS_CGETSET_DEF("location", document_location_get, document_location_set),
+    JS_CFUNC_DEF("appendChild", 1, element_append_child),
+    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
+    JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set)
 };
 
 #if 0
@@ -864,6 +1092,8 @@ js_html_init(void)
     JSContext *ctx;
     JSValue gl;
     JSValue proto;
+    JSValue *tagnames;
+    int i;
 
     if (rt == NULL) {
 	rt = JS_NewRuntime();
@@ -872,8 +1102,10 @@ js_html_init(void)
     ctx = JS_NewContext(rt);
     gl = JS_GetGlobalObject(ctx);
 
-    JS_NewClassID(&WindowClassID);
-    JS_NewClass(rt, WindowClassID, &WindowClass);
+    if (WindowClassID == 0) {
+	JS_NewClassID(&WindowClassID);
+	JS_NewClass(rt, WindowClassID, &WindowClass);
+    }
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, WindowFuncs,
 			       sizeof(WindowFuncs) / sizeof(WindowFuncs[0]));
@@ -881,8 +1113,10 @@ js_html_init(void)
     JS_SetPropertyStr(ctx, gl, "Window",
 		      JS_NewCFunction2(ctx, window_new, "Window", 1, JS_CFUNC_constructor, 0));
 
-    JS_NewClassID(&LocationClassID);
-    JS_NewClass(rt, LocationClassID, &LocationClass);
+    if (LocationClassID == 0) {
+	JS_NewClassID(&LocationClassID);
+	JS_NewClass(rt, LocationClassID, &LocationClass);
+    }
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, LocationFuncs,
 			       sizeof(LocationFuncs) / sizeof(LocationFuncs[0]));
@@ -891,37 +1125,45 @@ js_html_init(void)
 		      JS_NewCFunction2(ctx, location_new, "Location", 1, JS_CFUNC_constructor, 0));
     JS_SetPropertyStr(ctx, gl, "location", location_new(ctx, JS_NULL, 0, NULL));
 
-    JS_NewClassID(&CookieClassID);
-    JS_NewClass(rt, CookieClassID, &CookieClass);
-    JS_SetPropertyStr(ctx, gl, "Cookie",
-		      JS_NewCFunction2(ctx, cookie_new, "Cookie", 1, JS_CFUNC_constructor, 0));
-
-    JS_NewClassID(&ImageClassID);
-    JS_NewClass(rt, ImageClassID, &ImageClass);
-    JS_SetPropertyStr(ctx, gl, "Image",
-		      JS_NewCFunction2(ctx, image_new, "Image", 1, JS_CFUNC_constructor, 0));
-
-    JS_NewClassID(&FormItemClassID);
-    JS_NewClass(rt, FormItemClassID, &FormItemClass);
-    JS_SetPropertyStr(ctx, gl, "FormItem",
-		      JS_NewCFunction2(ctx, formitem_new, "FormItem", 1, JS_CFUNC_constructor, 0));
-
-    JS_NewClassID(&FormClassID);
-    JS_NewClass(rt, FormClassID, &FormClass);
+    if (HTMLFormElementClassID == 0) {
+	JS_NewClassID(&HTMLFormElementClassID);
+	JS_NewClass(rt, HTMLFormElementClassID, &HTMLFormElementClass);
+    }
     proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, FormFuncs,
-			       sizeof(FormFuncs) / sizeof(FormFuncs[0]));
-    JS_SetClassProto(ctx, FormClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Form",
-		      JS_NewCFunction2(ctx, form_new, "Form", 1, JS_CFUNC_constructor, 0));
+    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
+			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
+    JS_SetClassProto(ctx, HTMLFormElementClassID, proto);
+    JS_SetPropertyStr(ctx, gl, "HTMLFormElement",
+		      JS_NewCFunction2(ctx, form_element_new, "HTMLFormElement", 1,
+				       JS_CFUNC_constructor, 0));
 
-    JS_NewClassID(&AnchorClassID);
-    JS_NewClass(rt, AnchorClassID, &AnchorClass);
-    JS_SetPropertyStr(ctx, gl, "Anchor",
-		      JS_NewCFunction2(ctx, anchor_new, "Anchor", 1, JS_CFUNC_constructor, 0));
+    if (HTMLElementClassID == 0) {
+	JS_NewClassID(&HTMLElementClassID);
+	JS_NewClass(rt, HTMLElementClassID, &HTMLElementClass);
+    }
+    proto = JS_NewObject(ctx);
+    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
+			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
+    JS_SetClassProto(ctx, HTMLElementClassID, proto);
+    JS_SetPropertyStr(ctx, gl, "HTMLElement",
+		      JS_NewCFunction2(ctx, html_element_new, "HTMLElement", 1,
+				       JS_CFUNC_constructor, 0));
 
-    JS_NewClassID(&HistoryClassID);
-    JS_NewClass(rt, HistoryClassID, &HistoryClass);
+    if (ElementClassID == 0) {
+	JS_NewClassID(&ElementClassID);
+	JS_NewClass(rt, ElementClassID, &ElementClass);
+    }
+    proto = JS_NewObject(ctx);
+    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
+			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
+    JS_SetClassProto(ctx, ElementClassID, proto);
+    JS_SetPropertyStr(ctx, gl, "Element",
+		      JS_NewCFunction2(ctx, element_new, "Element", 1, JS_CFUNC_constructor, 0));
+
+    if (HistoryClassID == 0) {
+	JS_NewClassID(&HistoryClassID);
+	JS_NewClass(rt, HistoryClassID, &HistoryClass);
+    }
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, HistoryFuncs,
 			       sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]));
@@ -929,8 +1171,10 @@ js_html_init(void)
     JS_SetPropertyStr(ctx, gl, "History",
 		      JS_NewCFunction2(ctx, history_new, "History", 1, JS_CFUNC_constructor, 0));
 
-    JS_NewClassID(&NavigatorClassID);
-    JS_NewClass(rt, NavigatorClassID, &NavigatorClass);
+    if (NavigatorClassID == 0) {
+	JS_NewClassID(&NavigatorClassID);
+	JS_NewClass(rt, NavigatorClassID, &NavigatorClass);
+    }
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, NavigatorFuncs,
 			       sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]));
@@ -939,8 +1183,10 @@ js_html_init(void)
 		      JS_NewCFunction2(ctx, navigator_new, "Navigator", 1,
 				       JS_CFUNC_constructor, 0));
 
-    JS_NewClassID(&DocumentClassID);
-    JS_NewClass(rt, DocumentClassID, &DocumentClass);
+    if (DocumentClassID == 0) {
+	JS_NewClassID(&DocumentClassID);
+	JS_NewClass(rt, DocumentClassID, &DocumentClass);
+    }
     proto = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, proto, DocumentFuncs,
 			       sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]));
@@ -948,26 +1194,60 @@ js_html_init(void)
     JS_SetPropertyStr(ctx, gl, "Document",
 		      JS_NewCFunction2(ctx, document_new, "Document", 1, JS_CFUNC_constructor, 0));
 
+    JS_SetPropertyStr(ctx, gl, "alert", JS_NewCFunction(ctx, window_alert, "alert", 1));
+    JS_SetPropertyStr(ctx, gl, "confirm", JS_NewCFunction(ctx, window_confirm, "confirm", 1));
+
     JS_FreeValue(ctx, gl);
+
+    tagnames = (JSValue*)GC_MALLOC_UNCOLLECTABLE(sizeof(JSValue) * NUM_TAGNAMES);
+    for (i = 0; i < NUM_TAGNAMES; i++) {
+	tagnames[i] = JS_UNDEFINED;
+    }
+    JS_SetContextOpaque(ctx, tagnames);
 
     return ctx;
 }
 
-JSValue
-js_eval(JSContext *ctx, char *str) {
-    JSValue ret = JS_Eval(ctx, str, strlen(str), "<input>", 0 /* JS_EVAL_FLAG_STRICT */);
+void
+js_html_final(JSContext *ctx) {
+    GC_FREE(JS_GetContextOpaque(ctx));
+    JS_FreeContext(ctx);
+}
 
+void
+js_eval(JSContext *ctx, char *script) {
+    JSValue ret = js_eval2(ctx, script);
+    JS_FreeValue(ctx, ret);
+}
+
+JSValue
+js_eval2(JSContext *ctx, char *script) {
+#if 0
+    FILE *fp = fopen(Sprintf("w3mlog%p.txt", ctx)->ptr, "a");
+    fprintf(fp, "%s\n", script);
+    fclose(fp);
+#endif
+
+    JSValue ret = JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+
+#ifdef SCRIPT_DEBUG
     if (JS_IsException(ret)) {
 	JSValue err = JS_GetException(ctx);
-#ifdef SCRIPT_DEBUG
 	const char *err_str = JS_ToCString(ctx, err);
+
+	JSValue stack = JS_GetPropertyStr(ctx, err, "stack");
+	const char *stack_str = JS_ToCString(ctx, stack);
+
 	FILE *fp = fopen("scriptlog.txt", "a");
-	fprintf(fp, "<%s>\n%s\n", err_str, str);
-	JS_FreeCString(ctx, err_str);
+	fprintf(fp, "<%s>\n%s\n%s\n", err_str, stack_str, script);
 	fclose(fp);
-#endif
+
+	JS_FreeCString(ctx, err_str);
+	JS_FreeCString(ctx, stack_str);
 	JS_FreeValue(ctx, err);
+	JS_FreeValue(ctx, stack);
     }
+#endif
 
     return ret;
 }
@@ -1004,5 +1284,41 @@ js_get_str(JSContext *ctx, JSValue value)
     JS_FreeCString(ctx, str);
 
     return new_str;
+}
+
+int
+js_get_int(JSContext *ctx, JSValue value)
+{
+    int i;
+
+    JS_ToInt32(ctx, &i, value);
+
+    return i;
+}
+
+/* Regard "true" or "false" string as true or false value. */
+int
+js_is_true(JSContext *ctx, JSValue value)
+{
+    const char *str;
+    int flag = -1;
+
+    if (JS_IsString(value)) {
+	/* http://www.shurey.com/js/samples/6_smp7.html */
+	if ((str = JS_ToCString(ctx, value)) != NULL) {
+	    if (strcasecmp(str, "false") == 0) {
+		flag = 0;
+	    } else if (strcasecmp(str, "true") == 0) {
+		flag = 1;
+	    }
+	}
+	JS_FreeCString(ctx, str);
+    }
+
+    if (flag == -1) {
+	return JS_ToBool(ctx, value);
+    } else {
+	return flag;
+    }
 }
 #endif

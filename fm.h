@@ -516,6 +516,7 @@ typedef struct _Buffer {
     char *ssl_certificate;
 #endif
 #ifdef USE_SCRIPT
+    Str script_str;
     void *script_interp;
     char *script_lang;
     char *location;

@@ -38,7 +38,7 @@ struct {
 
 struct form_list *
 newFormList(char *action, char *method, char *charset, char *enctype,
-	    char *target, char *name, char *id, struct form_list *_next)
+	    char *target, char *name, char *id, char *onsubmit, struct form_list *_next)
 {
     struct form_list *l;
     Str a = Strnew_charp(action);
@@ -81,6 +81,9 @@ newFormList(char *action, char *method, char *charset, char *enctype,
     l->nitems = 0;
     l->body = NULL;
     l->length = 0;
+#ifdef USE_SCRIPT
+    l->onsubmit = onsubmit;
+#endif
     return l;
 }
 
@@ -153,6 +156,17 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 	item->onclick = Strnew_charp(p);
     } else {
 	item->onclick = NULL;
+    }
+    if (parsedtag_get_value(tag, ATTR_ONKEYUP, &p)) {
+	item->onkeyup = Strnew_charp(p);
+    } else if (parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p)) {
+	/* XXX */
+	item->onkeyup = Strnew_charp(p);
+    } else if (parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p)) {
+	/* XXX */
+	item->onkeyup = Strnew_charp(p);
+    } else {
+	item->onkeyup = NULL;
     }
 #endif
     if (item->type == FORM_INPUT_FILE && item->value && item->value->length) {

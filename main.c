@@ -1040,7 +1040,7 @@ main(int argc, char **argv, char **envp)
 			fclose(fp);
 		    request =
 			newFormList(NULL, "post", NULL, NULL, NULL, NULL,
-				    NULL, NULL);
+				    NULL, NULL, NULL);
 		    request->body = body->ptr;
 		    request->boundary = NULL;
 		    request->length = body->length;
@@ -3473,6 +3473,7 @@ _followForm(int submit, FormList *fl)
 	if (a == NULL)
 	    return;
 	fi = (FormItemList *)a->url;
+	fl = fi->parent;
     } else {
 	fi = fl->item;
 	/* See registerForm() */
@@ -3491,6 +3492,17 @@ _followForm(int submit, FormList *fl)
 	if (p == NULL || fi->readonly)
 	    break;
 	fi->value = Strnew_charp(p);
+#ifdef USE_JAVASCRIPT
+	if (fi->onkeyup) {
+	    script_eval(Currentbuf, "javascript", fi->onkeyup->ptr, NULL);
+	    if (Currentbuf->location) {
+		Buffer *buf = loadGeneralFile(Currentbuf->location, baseURL(Currentbuf),
+					      NO_REFERER, 0, NULL);
+		pushBuffer(buf);
+	    }
+	    break;
+	}
+#endif
 	formUpdateBuffer(a, Currentbuf, fi);
 	if (fi->accept || fi->parent->nitems == 1)
 	    goto do_submit;
@@ -3573,12 +3585,27 @@ _followForm(int submit, FormList *fl)
 	    goto do_submit;
 	break;
 #endif				/* MENU_SELECT */
-    case FORM_INPUT_IMAGE:
     case FORM_INPUT_SUBMIT:
+#ifdef USE_JAVASCRIPT
+	if (fl->onsubmit) {
+	    char *script = fl->onsubmit;
+
+	    /* remove "return" at the beginning of the script to avoid quickjs error. */
+	    while (*script == ' ' || *script == '\t') { script++; }
+	    if (strncmp(script, "return", 6) == 0) { script += 6; }
+	    while (*script == ' ' || *script == '\t') { script++; }
+
+	    if (!script_eval(Currentbuf, "javascript", script, NULL)) {
+		break;
+	    }
+	}
+#endif
+    case FORM_INPUT_IMAGE:
     case FORM_INPUT_BUTTON:
       do_submit:
+#ifdef USE_JAVASCRIPT
 	if (fi->onclick) {
-	    script_eval(Currentbuf, "javascript", fi->onclick->ptr);
+	    script_eval(Currentbuf, "javascript", fi->onclick->ptr, NULL);
 	    if (Currentbuf->location) {
 		Buffer *buf = loadGeneralFile(Currentbuf->location, baseURL(Currentbuf),
 					      NO_REFERER, 0, NULL);
@@ -3586,6 +3613,7 @@ _followForm(int submit, FormList *fl)
 	    }
 	    break;
 	}
+#endif
 	tmp = Strnew();
 	multipart = (fi->parent->method == FORM_METHOD_POST &&
 		     fi->parent->enctype == FORM_ENCTYPE_MULTIPART);
@@ -4381,7 +4409,7 @@ DEFUN(adBmark, ADD_BOOKMARK, "Add current page to bookmarks")
 #else
 		  (Str_form_quote(Strnew_charp(Currentbuf->buffername)))->ptr);
 #endif
-    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL, NULL);
+    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     request->body = tmp->ptr;
     request->length = tmp->length;
     cmd_loadURL("file:///$LIB/" W3MBOOKMARK_CMDNAME, NULL, NO_REFERER,

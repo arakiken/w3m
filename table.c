@@ -2447,8 +2447,7 @@ table_close_script(struct table *tbl, struct table_mode *mode, int width)
     Str tmp;
     mode->pre_mode &= ~TBLM_SCRIPT;
     mode->end_tag = 0;
-    if (! use_script)
-	return;
+
     tmp = process_n_script(tbl->h_env);
     feed_table1(tbl, tmp, mode, width);
 }
@@ -3183,9 +3182,7 @@ feed_table_tag(struct table *tbl, char *line, struct table_mode *mode,
     case HTML_SCRIPT:
 #ifdef USE_SCRIPT
 	if (use_script) {
-	    tmp = process_script(tag, tbl->h_env);
-	    if (tmp != NULL)
-		feed_table1(tbl, tmp, mode, width);
+	    process_script(tag, tbl->h_env);
 	}
 #endif
 	mode->pre_mode |= TBLM_SCRIPT;

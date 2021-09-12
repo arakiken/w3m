@@ -826,7 +826,12 @@ read_token(Str buf, char **instr, int *status, int pre, int append)
 		*status = prev_status;
 		return 1;
 	    }
-	    if (*status == R_ST_TAG0 && !REALLY_THE_BEGINNING_OF_A_TAG(p)) {
+	    if (*status == R_ST_TAG0 && (!REALLY_THE_BEGINNING_OF_A_TAG(p) ||
+					 /*
+					  * For scripts including '<' like 'if (a<b)'.
+					  * (http://www.shurey.com/js/samples/6_smp7.html)
+					  */
+					 (p[1] != '/' && (pre & RB_SCRIPT) != 0))) {
 		/* it seems that this '<' is not a beginning of a tag */
 		/*
 		 * Strcat_charp(buf, "&lt;");

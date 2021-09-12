@@ -1800,7 +1800,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 		return NULL;
 	    if (!Currentbuf)
 		return NULL;
-	    script_eval(Currentbuf, "JavaScript", pu.file);
+	    script_eval(Currentbuf, "JavaScript", pu.file, NULL);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
 	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
@@ -3638,7 +3638,7 @@ Str
 process_input(struct parsed_tag *tag)
 {
     int i = 20, v, x, y, z, iw, ih, size = 20;
-    char *q, *p, *r, *p2, *p3, *s;
+    char *q, *p, *r, *p2, *p3, *p4, *p5, *p6, *s, *id;
     Str tmp = NULL;
     char *qq = "";
     int qlen = 0;
@@ -3656,6 +3656,8 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_VALUE, &q);
     r = "";
     parsedtag_get_value(tag, ATTR_NAME, &r);
+    id = NULL;
+    parsedtag_get_value(tag, ATTR_ID, &id);
     parsedtag_get_value(tag, ATTR_SIZE, &size);
     if (size > MAX_INPUT_SIZE)
 	    size = MAX_INPUT_SIZE;
@@ -3664,6 +3666,12 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_ALT, &p2);
     p3 = NULL;
     parsedtag_get_value(tag, ATTR_ONCLICK, &p3);
+    p4 = NULL;
+    parsedtag_get_value(tag, ATTR_ONKEYUP, &p4);
+    p5 = NULL;
+    parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p5);
+    p6 = NULL;
+    parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p6);
     x = parsedtag_exists(tag, ATTR_CHECKED);
     y = parsedtag_exists(tag, ATTR_ACCEPT);
     z = parsedtag_exists(tag, ATTR_READONLY);
@@ -3718,6 +3726,9 @@ process_input(struct parsed_tag *tag)
 			"name=\"%s\" width=%d maxlength=%d value=\"%s\"",
 			cur_hseq++, cur_form_id, html_quote(p),
 			html_quote(r), size, i, qq));
+    if (id) {
+	Strcat(tmp, Sprintf(" id=\"%s\"", html_quote(id)));
+    }
     if (x)
 	Strcat_charp(tmp, " checked");
     if (y)
@@ -3726,6 +3737,15 @@ process_input(struct parsed_tag *tag)
 	Strcat_charp(tmp, " readonly");
     if (p3) {
 	Strcat(tmp, Sprintf(" onclick=\"%s\"", p3));
+    }
+    if (p4) {
+	Strcat(tmp, Sprintf(" onkeyup=\"%s\"", p4));
+    }
+    if (p5) {
+	Strcat(tmp, Sprintf(" onkeydown=\"%s\"", p5));
+    }
+    if (p6) {
+	Strcat(tmp, Sprintf(" onkeypress=\"%s\"", p6));
     }
     Strcat_char(tmp, '>');
 
@@ -4175,19 +4195,21 @@ feed_textarea(char *str)
 }
 
 #ifdef USE_SCRIPT
-Str
-process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
+void
+process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 {
     char *p = "JavaScript", *q, *t;
     struct stat st;
     int wait_st;
 
     if (frame_source)
-	return NULL;
+	return;
 
     parsedtag_get_value(tag, ATTR_LANGUAGE, &p);
     h_env->cur_script_lang = p;
-    h_env->cur_script_str = Strnew();
+    if (h_env->cur_script_str == NULL) {
+	h_env->cur_script_str = Strnew();
+    }
     t = NULL;
     if (parsedtag_get_value(tag, ATTR_FRAMENAME, &t)) {
 	h_env->script_target = t;
@@ -4202,17 +4224,23 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
 	if ((pid = fork()) == 0) {
 	    Buffer *b;
 	    ParsedURL u;
+	    char origAutoUncompress;
 
 	    setup_child(FALSE, 0, -1);
 	    q = remove_space(q);
-#ifdef JP_CHARSET
-	    parseURL2(conv(q, InnerCode, cur_document_code)->ptr, &u, cur_baseURL);
+#if 0 /*def USE_M17N*/
+	    /* XXX */
+	    parseURL2(wc_conv(q, InnerCharset, cur_document_charset), &u, cur_baseURL);
 	    UseContentCharset = TRUE;
 	    UseAutoDetect = TRUE;
 #else
 	    parseURL2(q, &u, cur_baseURL);
 #endif
+
+	    origAutoUncompress = AutoUncompress;
+	    AutoUncompress = TRUE;
 	    b = loadGeneralFile(parsedURL2Str(&u)->ptr, cur_baseURL, NULL, RG_SCRIPT, NULL);
+	    AutoUncompress = origAutoUncompress;
 	    if (b) {
 		if (b->real_type) {
 		    f = fopen(file, "w");
@@ -4225,7 +4253,7 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
 	    }
 	    exit(0);
 	} else if (pid < 0) {
-	    return NULL;
+	    return;
 	}
 
 #ifdef HAVE_WAITPID
@@ -4234,7 +4262,7 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
 	wait(&wait_st);
 #endif
 	if (stat(file, &st))
-	    return NULL;
+	    return;
 
 	f = fopen(file, "r");
 	if (f) {
@@ -4246,23 +4274,10 @@ process_script(struct parsed_tag * tag, struct html_feed_environ *h_env)
 	    fclose(f);
 	}
 	unlink(file);
-
-	/*
-	 * XXX
-	 * '#if 0' is to prevent calling process_n_script() twice.
-	 * (at both <script> and </script>)
-	 */
-#if 0
-	s = process_n_script(h_env);
-	if (s == NULL) {
-	    s = Strnew();
-	}
-	return s;
-#endif
     }
-    return NULL;
 }
 
+/* for table.c */
 Str
 process_n_script(struct html_feed_environ *h_env)
 {
@@ -4283,7 +4298,7 @@ process_n_script(struct html_feed_environ *h_env)
 	buf->script_lang = h_env->script_lang;
 	buf->script_target = h_env->script_target;
 	buf->currentURL = *cur_baseURL;
-	tmp = script_eval(buf, h_env->cur_script_lang, p);
+	script_eval(buf, h_env->cur_script_lang, p, &tmp);
 	h_env->script_interp = buf->script_interp;
 	h_env->script_lang = buf->script_lang;
 	h_env->script_target = buf->script_target;
@@ -4300,7 +4315,59 @@ void
 feed_script(char *str, struct html_feed_environ *h_env)
 {
     if (str != NULL && h_env != NULL && h_env->cur_script_str != NULL)
-	Strcat_charp(h_env->cur_script_str, str);
+	Strcat(h_env->cur_script_str,
+	       wc_Str_conv(Strnew_charp(str), InnerCharset, WC_CES_UTF_8));
+}
+
+static void
+eval_script(Buffer *buf)
+{
+    if (use_script && buf->script_str) {
+	Str tmp = NULL;
+
+	if (buf->script_str->length) {
+	    char *p;
+	    p = buf->script_str->ptr;
+	    while (IS_SPACE(*p)) p++;
+	    if (! strncmp(p, "<!--", 4))
+		while (!IS_ENDL(*p)) p++;
+	    script_eval(buf, buf->script_lang, p, &tmp);
+	    if (buf->location) {
+		tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
+			      html_quote(buf->location));
+	    }
+	}
+	buf->script_str = NULL;
+
+	if (tmp) {
+	    /* See loadHTMLstream() */
+	    struct html_feed_environ htmlenv1;
+	    struct readbuffer obuf;
+	    struct environment envs[MAX_ENV_LEVEL];
+
+	    if (buf->lastLine) {
+		buf->currentLine = buf->lastLine;
+	    }
+
+	    init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, buf->width, 0);
+	    htmlenv1.buf = newTextLineList();
+	    HTMLlineproc0(tmp->ptr, &htmlenv1, TRUE);
+	    if (obuf.status != R_ST_NORMAL) {
+		HTMLlineproc0("\n", &htmlenv1, TRUE);
+		obuf.status = R_ST_NORMAL;
+	    }
+	    completeHTMLstream(&htmlenv1, &obuf);
+	    flushline(&htmlenv1, &obuf, 0, 2, htmlenv1.limit);
+	    HTMLlineproc2(buf, htmlenv1.buf);
+
+	    /* See loadHTMLBuffer() etc */
+	    if (buf->topLine == NULL) {
+		buf->topLine = buf->firstLine;
+		buf->lastLine = buf->currentLine;
+		buf->currentLine = buf->firstLine;
+	    }
+	}
+    }
 }
 #endif
 
@@ -4374,7 +4441,7 @@ check_accept_charset(char *ac)
 static Str
 process_form_int(struct parsed_tag *tag, int fid)
 {
-    char *p, *q, *r, *s, *tg, *n, *id;
+    char *p, *q, *r, *s, *tg, *n, *id, *sm;
 
     p = "get";
     parsedtag_get_value(tag, ATTR_METHOD, &p);
@@ -4396,6 +4463,8 @@ process_form_int(struct parsed_tag *tag, int fid)
     parsedtag_get_value(tag, ATTR_NAME, &n);
     id = NULL;
     parsedtag_get_value(tag, ATTR_ID, &id);
+    sm = NULL;
+    parsedtag_get_value(tag, ATTR_ONSUBMIT, &sm);
 
     if (fid < 0) {
 	form_max++;
@@ -4434,11 +4503,13 @@ process_form_int(struct parsed_tag *tag, int fid)
 #endif
 	if (id)
 	    Strcat(tmp, Sprintf(" id=\"%s\"", html_quote(id)));
+	if (sm)
+	    Strcat(tmp, Sprintf(" onsubmit=\"%s\"", html_quote(sm)));
 	Strcat_charp(tmp, ">");
 	return tmp;
     }
 
-    forms[fid] = newFormList(q, p, r, s, tg, n, id, NULL);
+    forms[fid] = newFormList(q, p, r, s, tg, n, id, sm, NULL);
     return NULL;
 }
 
@@ -5157,9 +5228,7 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_SCRIPT:
 #ifdef USE_SCRIPT
 	if (use_script) {
-	    tmp = process_script(tag, h_env);
-	    if (tmp != NULL)
-		HTMLlineproc1(tmp->ptr, h_env);
+	    process_script(tag, h_env);
 	}
 #endif
 	obuf->flag |= RB_SCRIPT;
@@ -5172,13 +5241,6 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
     case HTML_N_SCRIPT:
 	obuf->flag &= ~RB_SCRIPT;
 	obuf->end_tag = 0;
-#ifdef USE_SCRIPT
-	if (use_script) {
-	    tmp = process_n_script(h_env);
-	    if (tmp != NULL)
-		HTMLlineproc1(tmp->ptr, h_env);
-	}
-#endif
 	return 1;
 #ifdef USE_SCRIPT
     case HTML_NOSCRIPT:
@@ -7143,6 +7205,10 @@ loadHTMLBuffer(URLFile *f, Buffer *newBuf)
     if (src)
 	fclose(src);
 
+#ifdef USE_SCRIPT
+    eval_script(newBuf);
+#endif
+
     return newBuf;
 }
 
@@ -7654,8 +7720,9 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 #endif
 #ifdef USE_SCRIPT
     newBuf->script_interp = htmlenv1.script_interp;
-    newBuf->script_lang = htmlenv1.script_lang;
+    newBuf->script_lang = htmlenv1.cur_script_lang;
     newBuf->script_target = htmlenv1.script_target;
+    newBuf->script_str = htmlenv1.cur_script_str;
 #endif
 #ifdef USE_IMAGE
     newBuf->image_flag = image_flag;
@@ -7701,6 +7768,11 @@ loadHTMLString(Str page)
     newBuf->real_type = newBuf->type;
     if (n_textarea)
 	formResetBuffer(newBuf, newBuf->formitem);
+
+#ifdef USE_SCRIPT
+    eval_script(newBuf);
+#endif
+
     return newBuf;
 }
 
@@ -8026,6 +8098,11 @@ loadImageBuffer(URLFile *uf, Buffer *newBuf)
     newBuf->lastLine = newBuf->currentLine;
     newBuf->currentLine = newBuf->firstLine;
     newBuf->image_flag = IMG_FLAG_AUTO;
+
+#ifdef USE_SCRIPT
+    eval_script(newBuf);
+#endif
+
     return newBuf;
 }
 #endif

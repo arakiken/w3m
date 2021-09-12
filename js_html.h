@@ -8,24 +8,26 @@ extern JSClassID LocationClassID;
 extern JSClassID DocumentClassID;
 extern JSClassID NavigatorClassID;
 extern JSClassID HistoryClassID;
-extern JSClassID AnchorClassID;
-extern JSClassID FormItemClassID;
-extern JSClassID FormClassID;
-extern JSClassID ImageClassID;
-extern JSClassID CookieClassID;
+extern JSClassID HTMLFormElementClassID;
+extern JSClassID HTMLElementClassID;
+extern JSClassID ElementClassID;
 
-typedef struct jse_windowopen {
+extern char *alert_msg;
+
+typedef struct _OpenWindow {
     char *url;
     char *name;
-} jse_windowopen_t;
+} OpenWindow;
 
 typedef struct _WindowState {
-    GeneralList *win;
+    GeneralList *win; /* OpenWindow */
     int close;
 } WindowState;
 
 typedef struct _DocumentState {
     Str write;
+    Str cookie;
+    int cookie_changed;
 } DocumentState;
 
 typedef struct _NavigatorState {
@@ -47,20 +49,31 @@ typedef struct _LocationState {
 #define JS_LOC_HASH	2
 } LocationState;
 
-typedef struct _FormState {
+typedef struct _HTMLFormElementState {
     int submit;
     int reset;
-} FormState;
+} HTMLFormElementState;
 
+#define i2us(s) wc_Str_conv(s, InnerCharset, WC_CES_UTF_8)
+#define i2uc(s) wc_Str_conv(Strnew_charp(s), InnerCharset, WC_CES_UTF_8)->ptr
+#define u2is(s) wc_Str_conv(s, WC_CES_UTF_8, InnerCharset)
+#define u2ic(s) wc_Str_conv(Strnew_charp(s), WC_CES_UTF_8, InnerCharset)->ptr
+
+#define js_is_undefined(val) JS_IsUndefined(val)
+#define js_is_exception(val) JS_IsException(val)
 #define js_is_object(val) JS_IsObject(val)
 #define js_get_state(obj, id) JS_GetOpaque(obj, id)
-#define js_html_final(ctx) JS_FreeContext(ctx)
+#define js_free(ctx, val) JS_FreeValue(ctx, val)
 
 extern JSContext *js_html_init(void);
+extern void js_html_final(JSContext *ctx);
 
-extern JSValue js_eval(JSContext *interp, char *str);
+extern void js_eval(JSContext *interp, char *str);
+extern JSValue js_eval2(JSContext *interp, char *str);
 
 extern char *js_get_cstr(JSContext *ctx, JSValue value);
 extern Str js_get_str(JSContext *ctx, JSValue value);
+extern int js_get_int(JSContext *ctx, JSValue value);
+extern int js_is_true(JSContext *ctx, JSValue value);
 
 #endif
