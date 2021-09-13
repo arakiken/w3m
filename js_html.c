@@ -538,10 +538,15 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     cw = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, cw, "document", JS_NewObjectClass(ctx, DocumentClassID));
     JS_SetPropertyStr(ctx, obj, "contentWindow", cw);
-    array = JS_NewArray(ctx);
+    array = JS_NewArray(ctx); /* XXX HTMLCollection */
     JS_SetPropertyStr(ctx, obj, "children", array);
     JS_SetPropertyStr(ctx, obj, "childNodes", JS_DupValue(ctx, array)); /* XXX */
+    JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
+    JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
+    JS_SetPropertyStr(ctx, obj, "nextSibling", JS_NULL);
+    JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
+    JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
 }
 
 static JSValue
@@ -657,6 +662,7 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
     JS_FreeValue(ctx, val);
 
     JS_SetPropertyStr(ctx, argv[0], "parentNode", JS_DupValue(ctx, jsThis));
+    JS_SetPropertyStr(ctx, argv[0], "parentElement", JS_DupValue(ctx, jsThis));
 
 #if 0
     fp = fopen("w3mlog.txt", "a");
@@ -701,6 +707,18 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 }
 
 static JSValue
+element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc != 2) {
+	return JS_EXCEPTION;
+    }
+
+    /* XXX Not implemented. */
+
+    return JS_DupValue(ctx, argv[1]); /* XXX segfault without this by returining argv[1]. */
+}
+
+static JSValue
 element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     const char *key;
@@ -740,12 +758,58 @@ element_get_bounding_client_rect(JSContext *ctx, JSValueConst jsThis, int argc, 
     return rect;
 }
 
+static JSValue
+element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
+
+    if (argc != 0) {
+	return JS_EXCEPTION;
+    }
+
+    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+}
+
+static JSValue
+element_first_child_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] = "if (this.children.length > 0) {"
+	            "  this.children[0];"
+                    "} else {"
+	            "  null;"
+		    "}";
+    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+}
+
+static JSValue
+element_last_child_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] = "if (this.children.length > 0) {"
+	            "  this.children[this.children.length - 1];"
+                    "} else {"
+	            "  null;"
+		    "}";
+    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+}
+
+static JSValue
+element_owner_document_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_Eval(ctx, "document;", 9, "<input>", EVAL_FLAG);
+}
+
 static const JSCFunctionListEntry ElementFuncs[] = {
     /* HTMLElement */
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
+    JS_CFUNC_DEF("insertBefore", 1, element_append_child), /* XXX */
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
+    JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
     JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
     JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
+    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
+    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
+    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
+    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
 
     /* HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, form_element_submit),
@@ -955,7 +1019,6 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     }
 
     obj = JS_NewObjectClass(ctx, DocumentClassID);
-    JS_SetPropertyStr(ctx, obj, "children", JS_NewArray(ctx));
 
     state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
     state->write = NULL;

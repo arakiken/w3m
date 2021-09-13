@@ -4215,7 +4215,9 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	h_env->script_target = t;
     }
     q = NULL;
-    if (parsedtag_get_value(tag, ATTR_SRC, &q)) {
+    if (parsedtag_get_value(tag, ATTR_SRC, &q) &&
+	/* src="" in http://alphasis.info/2011/04/javascript-form-check-required-input/ */
+	*q != '\0') {
 	FILE *f;
 	char *file;
 	pid_t pid;

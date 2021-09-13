@@ -116,6 +116,8 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
 
     /* http://www.shurey.com/js/samples/6_smp7.html */
     js_eval(interp, Sprintf("document.forms[%d].elements[%d][\"%d\"] = document.forms[%d].elements[%d].options[%d];", i, j, k, i, j, k)->ptr);
+
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].options[%d].parentNode = document.forms[%d].elements[%d].options[%d].parentElement = document.forms[%d].elements[%d];", i, j, k, i, j, k, i, j)->ptr);
 }
 
 static void
@@ -232,6 +234,8 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	}
 	js_free(interp, val);
     }
+
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].parentNode = document.forms[%d].elements[%d].parentElement = document.forms[%d];", i, j, i, j, i)->ptr);
 }
 
 static void
@@ -244,22 +248,26 @@ script_buf2js(Buffer *buf, void *interp)
     static int ppc;
     static int ppl;
 
-    ret = js_eval2(interp, "window;");
+    ret = js_eval2(interp, "document;");
     if (js_is_exception(ret)) {
 	js_eval(interp,
-		"var window = new Window();"
-		"window.parent = window;"
-		"var screen = new Object();"
-		"window.screen = screen;"
-		""
-		"var navigator = new Navigator();"
-		""
 		"var document = new Document();"
 		"document.compatMode = \"CSS1Compat\";"
 		"document.documentElement = new HTMLElement(\"html\");"
+		"/* XXX document.children should includes document.forms, too. */"
+		"document.children = document.documentElement.children;"
 		"document.head = new HTMLElement(\"head\");"
 		"document.body = new HTMLElement(\"body\");"
 		"document.referrer = \"\";"
+		""
+		"var screen = new Object();"
+		""
+		"var window = new Window();"
+		"window.document = document;"
+		"window.parent = window;"
+		"window.screen = screen;"
+		""
+		"var navigator = new Navigator();"
 		""
 	        "document.createElement = function(tagname) {"
 		"  if (tagname.toLowerCase() === \"form\") {"
@@ -305,6 +313,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  if (tagname.toLowerCase() === \"form\") {"
 		"    return document.forms;"
 		"  } else {"
+		"    /* XXX HTMLCollection */"
 		"    return new Array();"
 		"  }"
 		"};"
@@ -319,6 +328,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"}"
 		""
 		"document.getElementsByName = function(name) {"
+		"  /* XXX HTMLCollection */"
 		"  let array = new Array();"
 		"  for (let i = 0; i < document.forms.length; i++) {"
 		"    w3m_getElementsByName(document.forms[i], name, array);"
@@ -345,7 +355,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  }"
 		"}"
 		""
-		"function w3m_elements_to_str_intern(element) {"
+		"function w3m_innerhtmls_to_str_intern(element) {"
 		"  let str = \"\";"
 		"  if (element.innerHTML != undefined) {"
 		"    if (element.name != undefined) {"
@@ -360,15 +370,15 @@ script_buf2js(Buffer *buf, void *interp)
 		"    element.innerHTML = undefined;"
 		"  }"
 		"  for (let i = 0; i < element.children.length; i++) {"
-		"    str += w3m_elements_to_str_intern(element.children[i]);"
+		"    str += w3m_innerhtmls_to_str_intern(element.children[i]);"
 		"  }"
 		"  return str;"
 		"}"
 		""
-		"function w3m_elements_to_str() {"
+		"function w3m_innerhtmls_to_str() {"
 		"  let str = \"\";"
 		"  for (let i = 0; i < document.children.length; i++) {"
-		"    str += w3m_elements_to_str_intern(document.children[i]);"
+		"    str += w3m_innerhtmls_to_str_intern(document.children[i]);"
 		"  }"
 		"  return str;"
 		"};");
@@ -423,6 +433,7 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
     js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
+    /* XXX HTMLCollection */
     js_eval(interp, "document.forms = new Array();");
 
     /* For document.children.length in script.c */
@@ -471,6 +482,8 @@ script_buf2js(Buffer *buf, void *interp)
 	    for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
 		put_form_element(interp, i, j, fi);
 	    }
+
+	    js_eval(interp, Sprintf("document.forms[%d].parentNode = document.forms[%d].parentElement = document.documentElement;", i, i)->ptr);
 	}
     }
 }
@@ -891,7 +904,7 @@ script_js2buf(Buffer *buf, void *interp)
 	}
     }
 
-    value = js_eval2(interp, "w3m_elements_to_str();");
+    value = js_eval2(interp, "w3m_innerhtmls_to_str();");
     Str str = js_get_str(interp, value);
     if (str != NULL) {
 	set_delayed_message(u2is(str)->ptr);
