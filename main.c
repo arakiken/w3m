@@ -1040,7 +1040,7 @@ main(int argc, char **argv, char **envp)
 			fclose(fp);
 		    request =
 			newFormList(NULL, "post", NULL, NULL, NULL, NULL,
-				    NULL, NULL, NULL);
+				    NULL, NULL, NULL, NULL);
 		    request->body = body->ptr;
 		    request->boundary = NULL;
 		    request->length = body->length;
@@ -3588,7 +3588,7 @@ _followForm(int submit, FormList *fl)
     case FORM_INPUT_SUBMIT:
 #ifdef USE_JAVASCRIPT
 	if (fl->onsubmit) {
-	    char *script = fl->onsubmit;
+	    char *script = wc_Str_conv(Strnew_charp(fl->onsubmit), InnerCharset, WC_CES_UTF_8)->ptr;
 
 	    /* remove "return" at the beginning of the script to avoid quickjs error. */
 	    while (*script == ' ' || *script == '\t') { script++; }
@@ -3666,6 +3666,20 @@ _followForm(int submit, FormList *fl)
 	}
 	break;
     case FORM_INPUT_RESET:
+#ifdef USE_JAVASCRIPT
+	if (fl->onreset) {
+	    char *script = wc_Str_conv(Strnew_charp(fl->onreset), InnerCharset, WC_CES_UTF_8)->ptr;
+
+	    /* remove "return" at the beginning of the script to avoid quickjs error. */
+	    while (*script == ' ' || *script == '\t') { script++; }
+	    if (strncmp(script, "return", 6) == 0) { script += 6; }
+	    while (*script == ' ' || *script == '\t') { script++; }
+
+	    if (!script_eval(Currentbuf, "javascript", script, NULL)) {
+		break;
+	    }
+	}
+#endif
 	for (i = 0; i < Currentbuf->formitem->nanchor; i++) {
 	    a2 = &Currentbuf->formitem->anchors[i];
 	    f2 = (FormItemList *)a2->url;
@@ -4409,7 +4423,7 @@ DEFUN(adBmark, ADD_BOOKMARK, "Add current page to bookmarks")
 #else
 		  (Str_form_quote(Strnew_charp(Currentbuf->buffername)))->ptr);
 #endif
-    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    request = newFormList(NULL, "post", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     request->body = tmp->ptr;
     request->length = tmp->length;
     cmd_loadURL("file:///$LIB/" W3MBOOKMARK_CMDNAME, NULL, NO_REFERER,

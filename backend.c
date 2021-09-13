@@ -182,7 +182,7 @@ post(TextList *argv)
     }
     if (url) {
 	request =
-	    newFormList(NULL, "post", charset, enctype, target, NULL, NULL, NULL, NULL);
+	    newFormList(NULL, "post", charset, enctype, target, NULL, NULL, NULL, NULL, NULL);
 	request->body = body;
 	request->boundary = boundary;
 	request->length = (length > 0) ? length : (body ? strlen(body) : 0);

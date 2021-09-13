@@ -428,7 +428,7 @@ extern void feed_table1(struct table *tbl, Str tok, struct table_mode *mode,
 extern void pushTable(struct table *, struct table *);
 extern struct form_list *newFormList(char *action, char *method, char *charset,
 				     char *enctype, char *target, char *name, char *id,
-				     char *onsubmit, struct form_list *_next);
+				     char *onsubmit, char *onreset, struct form_list *_next);
 extern struct form_item_list *formList_addInput(struct form_list *fl,
 						struct parsed_tag *tag);
 extern char *form2str(FormItemList *fi);

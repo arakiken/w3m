@@ -59,6 +59,7 @@ typedef struct form_list {
     unsigned long length;
 #ifdef USE_SCRIPT
     char *onsubmit;
+    char *onreset;
 #endif
 } FormList;
 

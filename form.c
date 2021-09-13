@@ -38,7 +38,8 @@ struct {
 
 struct form_list *
 newFormList(char *action, char *method, char *charset, char *enctype,
-	    char *target, char *name, char *id, char *onsubmit, struct form_list *_next)
+	    char *target, char *name, char *id, char *onsubmit, char *onreset,
+	    struct form_list *_next)
 {
     struct form_list *l;
     Str a = Strnew_charp(action);
@@ -83,6 +84,7 @@ newFormList(char *action, char *method, char *charset, char *enctype,
     l->length = 0;
 #ifdef USE_SCRIPT
     l->onsubmit = onsubmit;
+    l->onreset = onreset;
 #endif
     return l;
 }

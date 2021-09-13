@@ -4443,7 +4443,7 @@ check_accept_charset(char *ac)
 static Str
 process_form_int(struct parsed_tag *tag, int fid)
 {
-    char *p, *q, *r, *s, *tg, *n, *id, *sm;
+    char *p, *q, *r, *s, *tg, *n, *id, *sm, *rs;
 
     p = "get";
     parsedtag_get_value(tag, ATTR_METHOD, &p);
@@ -4467,6 +4467,8 @@ process_form_int(struct parsed_tag *tag, int fid)
     parsedtag_get_value(tag, ATTR_ID, &id);
     sm = NULL;
     parsedtag_get_value(tag, ATTR_ONSUBMIT, &sm);
+    rs = NULL;
+    parsedtag_get_value(tag, ATTR_ONRESET, &rs);
 
     if (fid < 0) {
 	form_max++;
@@ -4507,11 +4509,13 @@ process_form_int(struct parsed_tag *tag, int fid)
 	    Strcat(tmp, Sprintf(" id=\"%s\"", html_quote(id)));
 	if (sm)
 	    Strcat(tmp, Sprintf(" onsubmit=\"%s\"", html_quote(sm)));
+	if (rs)
+	    Strcat(tmp, Sprintf(" onreset=\"%s\"", html_quote(rs)));
 	Strcat_charp(tmp, ">");
 	return tmp;
     }
 
-    forms[fid] = newFormList(q, p, r, s, tg, n, id, sm, NULL);
+    forms[fid] = newFormList(q, p, r, s, tg, n, id, sm, rs, NULL);
     return NULL;
 }
 
