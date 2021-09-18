@@ -3638,7 +3638,7 @@ Str
 process_input(struct parsed_tag *tag)
 {
     int i = 20, v, x, y, z, iw, ih, size = 20;
-    char *q, *p, *r, *p2, *p3, *p4, *p5, *p6, *s, *id;
+    char *q, *p, *r, *p2, *p3, *p4, *p5, *p6, *p7, *s, *id;
     Str tmp = NULL;
     char *qq = "";
     int qlen = 0;
@@ -3672,6 +3672,8 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p5);
     p6 = NULL;
     parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p6);
+    p7 = NULL;
+    parsedtag_get_value(tag, ATTR_ONCHANGE, &p7);
     x = parsedtag_exists(tag, ATTR_CHECKED);
     y = parsedtag_exists(tag, ATTR_ACCEPT);
     z = parsedtag_exists(tag, ATTR_READONLY);
@@ -3746,6 +3748,9 @@ process_input(struct parsed_tag *tag)
     }
     if (p6) {
 	Strcat(tmp, Sprintf(" onkeypress=\"%s\"", p6));
+    }
+    if (p7) {
+	Strcat(tmp, Sprintf(" onchange=\"%s\"", p7));
     }
     Strcat_char(tmp, '>');
 
@@ -3850,7 +3855,7 @@ Str
 process_button(struct parsed_tag *tag)
 {
     Str tmp = NULL;
-    char *p, *q, *r, *qq = "";
+    char *p, *q, *r, *qq = "", *onclick;
     int qlen, v;
 
     if (cur_form_id < 0) {
@@ -3866,6 +3871,8 @@ process_button(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_VALUE, &q);
     r = "";
     parsedtag_get_value(tag, ATTR_NAME, &r);
+    onclick = NULL;
+    parsedtag_get_value(tag, ATTR_ONCLICK, &onclick);
 
     v = formtype(p);
     if (v == FORM_UNKNOWN)
@@ -3900,9 +3907,16 @@ process_button(struct parsed_tag *tag)
 
     /*    Strcat_charp(tmp, "<pre_int>"); */
     Strcat(tmp, Sprintf("<input_alt hseq=\"%d\" fid=\"%d\" type=\"%s\" "
-                       "name=\"%s\" value=\"%s\">",
+                       "name=\"%s\" value=\"%s\"",
                        cur_hseq++, cur_form_id, html_quote(p),
                        html_quote(r), qq));
+
+    if (onclick) {
+	Strcat(tmp, Sprintf(" onclick=\"%s\">", onclick));
+    } else {
+	Strcat_charp(tmp, ">");
+    }
+
     return tmp;
 }
 
@@ -4208,8 +4222,9 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
     parsedtag_get_value(tag, ATTR_LANGUAGE, &p);
     h_env->cur_script_lang = p;
     if (h_env->cur_script_str == NULL) {
-	h_env->cur_script_str = Strnew();
+	h_env->cur_script_str = newGeneralList();
     }
+    pushValue(h_env->cur_script_str, Strnew());
     t = NULL;
     if (parsedtag_get_value(tag, ATTR_FRAMENAME, &t)) {
 	h_env->script_target = t;
@@ -4271,7 +4286,7 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	    char buf[256];
 	    int n;
 	    while (n = fread(buf, sizeof(char), 256, f)) {
-		Strcat_charp_n(h_env->cur_script_str, buf, n);
+		Strcat_charp_n(h_env->cur_script_str->last->ptr, buf, n);
 	    }
 	    fclose(f);
 	}
@@ -4283,65 +4298,91 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 Str
 process_n_script(struct html_feed_environ *h_env)
 {
-    Buffer *buf;
-    Str tmp = NULL;
+    Str ret = NULL;
 
     if (! use_script)
 	return NULL;
     if (h_env != NULL &&
-	h_env->cur_script_str != NULL && h_env->cur_script_str->length) {
-	char *p;
-	buf = newBuffer(INIT_BUFFER_WIDTH);
-	p = h_env->cur_script_str->ptr;
-	while (IS_SPACE(*p)) p++;
-	if (! strncmp(p, "<!--", 4))
-	    while (!IS_ENDL(*p)) p++;
-	buf->script_interp = h_env->script_interp;
-	buf->script_lang = h_env->script_lang;
-	buf->script_target = h_env->script_target;
-	buf->currentURL = *cur_baseURL;
-	script_eval(buf, h_env->cur_script_lang, p, &tmp);
-	h_env->script_interp = buf->script_interp;
-	h_env->script_lang = buf->script_lang;
-	h_env->script_target = buf->script_target;
-	if (buf->location) {
-	    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
-		html_quote(buf->location));
+	h_env->cur_script_str != NULL) {
+	ListItem *l;
+	for (l = h_env->cur_script_str->first; l != NULL; l = l->next) {
+	    Str script = l->ptr;
+	    if (script->length) {
+		char *p;
+		Str tmp;
+		Buffer *buf;
+		buf = newBuffer(INIT_BUFFER_WIDTH);
+		p = script->ptr;
+		while (IS_SPACE(*p)) p++;
+		if (! strncmp(p, "<!--", 4))
+		    while (!IS_ENDL(*p)) p++;
+		buf->script_interp = h_env->script_interp;
+		buf->script_lang = h_env->script_lang;
+		buf->script_target = h_env->script_target;
+		buf->currentURL = *cur_baseURL;
+		script_eval(buf, h_env->cur_script_lang, p, &tmp);
+		h_env->script_interp = buf->script_interp;
+		h_env->script_lang = buf->script_lang;
+		h_env->script_target = buf->script_target;
+		if (buf->location) {
+		    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
+				  html_quote(buf->location));
+		}
+		if (tmp != NULL) {
+		    if (ret == NULL) {
+			ret = tmp;
+		    } else {
+			Strcat(ret, tmp);
+		    }
+		}
+	    }
 	}
     }
     h_env->cur_script_str = NULL;
-    return tmp;
+    return ret;
 }
 
 void
 feed_script(char *str, struct html_feed_environ *h_env)
 {
-    if (str != NULL && h_env != NULL && h_env->cur_script_str != NULL)
-	Strcat(h_env->cur_script_str,
+    if (str != NULL && h_env != NULL && h_env->cur_script_str != NULL) {
+	Strcat(h_env->cur_script_str->last->ptr,
 	       wc_Str_conv(Strnew_charp(str), InnerCharset, WC_CES_UTF_8));
+    }
 }
 
 static void
 eval_script(Buffer *buf)
 {
     if (use_script && buf->script_str) {
-	Str tmp = NULL;
-
-	if (buf->script_str->length) {
-	    char *p;
-	    p = buf->script_str->ptr;
-	    while (IS_SPACE(*p)) p++;
-	    if (! strncmp(p, "<!--", 4))
-		while (!IS_ENDL(*p)) p++;
-	    script_eval(buf, buf->script_lang, p, &tmp);
-	    if (buf->location) {
-		tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
-			      html_quote(buf->location));
+	Str ret = NULL;
+	ListItem *l;
+	for (l = buf->script_str->first; l != NULL; l = l->next) {
+	    Str script = l->ptr;
+	    if (script->length) {
+		char *p;
+		Str tmp;
+		p = script->ptr;
+		while (IS_SPACE(*p)) p++;
+		if (! strncmp(p, "<!--", 4))
+		    while (!IS_ENDL(*p)) p++;
+		script_eval(buf, buf->script_lang, p, &tmp);
+		if (buf->location) {
+		    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
+				  html_quote(buf->location));
+		}
+		if (tmp != NULL) {
+		    if (ret == NULL) {
+			ret = tmp;
+		    } else {
+			Strcat(ret, tmp);
+		    }
+		}
 	    }
 	}
 	buf->script_str = NULL;
 
-	if (tmp) {
+	if (ret) {
 	    /* See loadHTMLstream() */
 	    struct html_feed_environ htmlenv1;
 	    struct readbuffer obuf;
@@ -4353,7 +4394,7 @@ eval_script(Buffer *buf)
 
 	    init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, buf->width, 0);
 	    htmlenv1.buf = newTextLineList();
-	    HTMLlineproc0(tmp->ptr, &htmlenv1, TRUE);
+	    HTMLlineproc0(ret->ptr, &htmlenv1, TRUE);
 	    if (obuf.status != R_ST_NORMAL) {
 		HTMLlineproc0("\n", &htmlenv1, TRUE);
 		obuf.status = R_ST_NORMAL;

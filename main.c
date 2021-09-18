@@ -3456,6 +3456,21 @@ followForm(FormList *fl)
     _followForm(FALSE, fl);
 }
 
+static int
+script_eval_and_load(Buffer *buf, char *script, Str *output)
+{
+    int ret = script_eval(buf, "javascript", script, output);
+
+    if (buf->location) {
+	Buffer *new_buf = loadGeneralFile(buf->location, baseURL(buf), NO_REFERER, 0, NULL);
+	if (new_buf != NULL) {
+	    pushBuffer(new_buf);
+	}
+    }
+
+    return ret;
+}
+
 static void
 _followForm(int submit, FormList *fl)
 {
@@ -3492,18 +3507,14 @@ _followForm(int submit, FormList *fl)
 	if (p == NULL || fi->readonly)
 	    break;
 	fi->value = Strnew_charp(p);
+	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
-	if (fi->onkeyup) {
-	    script_eval(Currentbuf, "javascript", fi->onkeyup->ptr, NULL);
-	    if (Currentbuf->location) {
-		Buffer *buf = loadGeneralFile(Currentbuf->location, baseURL(Currentbuf),
-					      NO_REFERER, 0, NULL);
-		pushBuffer(buf);
-	    }
+	if (fi->onkeyup || fi->onchange) {
+	    char *script = fi->onkeyup ? fi->onkeyup->ptr : fi->onchange->ptr;
+	    script_eval_and_load(Currentbuf, script, NULL);
 	    break;
 	}
 #endif
-	formUpdateBuffer(a, Currentbuf, fi);
 	if (fi->accept || fi->parent->nitems == 1)
 	    goto do_submit;
 	break;
@@ -3549,6 +3560,12 @@ _followForm(int submit, FormList *fl)
 	    disp_message_nsec("Read only field!", FALSE, 1, TRUE, FALSE);
 	input_textarea(fi);
 	formUpdateBuffer(a, Currentbuf, fi);
+#ifdef USE_JAVASCRIPT
+	if (fi->onchange) {
+	    script_eval_and_load(Currentbuf, fi->onchange->ptr, NULL);
+	    break;
+	}
+#endif
 	break;
     case FORM_INPUT_RADIO:
 	if (submit)
@@ -3581,6 +3598,12 @@ _followForm(int submit, FormList *fl)
 				    Currentbuf->cursorY + Currentbuf->rootY))
 	    break;
 	formUpdateBuffer(a, Currentbuf, fi);
+#ifdef USE_JAVASCRIPT
+	if (fi->onchange) {
+	    script_eval_and_load(Currentbuf, fi->onchange->ptr, NULL);
+	    break;
+	}
+#endif
 	if (fi->parent->nitems == 1)
 	    goto do_submit;
 	break;
@@ -3588,7 +3611,7 @@ _followForm(int submit, FormList *fl)
     case FORM_INPUT_SUBMIT:
 #ifdef USE_JAVASCRIPT
 	if (fl->onsubmit) {
-	    char *script = wc_Str_conv(Strnew_charp(fl->onsubmit), InnerCharset, WC_CES_UTF_8)->ptr;
+	    char *script = fl->onsubmit;
 
 	    /* remove "return" at the beginning of the script to avoid quickjs error. */
 	    while (*script == ' ' || *script == '\t') { script++; }
@@ -3605,12 +3628,7 @@ _followForm(int submit, FormList *fl)
       do_submit:
 #ifdef USE_JAVASCRIPT
 	if (fi->onclick) {
-	    script_eval(Currentbuf, "javascript", fi->onclick->ptr, NULL);
-	    if (Currentbuf->location) {
-		Buffer *buf = loadGeneralFile(Currentbuf->location, baseURL(Currentbuf),
-					      NO_REFERER, 0, NULL);
-		pushBuffer(buf);
-	    }
+	    script_eval_and_load(Currentbuf, fi->onclick->ptr, NULL);
 	    break;
 	}
 #endif
@@ -3668,7 +3686,7 @@ _followForm(int submit, FormList *fl)
     case FORM_INPUT_RESET:
 #ifdef USE_JAVASCRIPT
 	if (fl->onreset) {
-	    char *script = wc_Str_conv(Strnew_charp(fl->onreset), InnerCharset, WC_CES_UTF_8)->ptr;
+	    char *script = fl->onreset;
 
 	    /* remove "return" at the beginning of the script to avoid quickjs error. */
 	    while (*script == ' ' || *script == '\t') { script++; }

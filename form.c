@@ -83,8 +83,8 @@ newFormList(char *action, char *method, char *charset, char *enctype,
     l->body = NULL;
     l->length = 0;
 #ifdef USE_SCRIPT
-    l->onsubmit = onsubmit;
-    l->onreset = onreset;
+    l->onsubmit = wc_conv(onsubmit, InnerCharset, WC_CES_UTF_8)->ptr;
+    l->onreset = wc_conv(onreset, InnerCharset, WC_CES_UTF_8)->ptr;
 #endif
     return l;
 }
@@ -155,20 +155,25 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 #endif				/* MENU_SELECT */
 #ifdef USE_SCRIPT
     if (parsedtag_get_value(tag, ATTR_ONCLICK, &p)) {
-	item->onclick = Strnew_charp(p);
+	item->onclick = wc_conv(p, InnerCharset, WC_CES_UTF_8);
     } else {
 	item->onclick = NULL;
     }
     if (parsedtag_get_value(tag, ATTR_ONKEYUP, &p)) {
-	item->onkeyup = Strnew_charp(p);
+	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
     } else if (parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p)) {
 	/* XXX */
-	item->onkeyup = Strnew_charp(p);
+	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
     } else if (parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p)) {
 	/* XXX */
-	item->onkeyup = Strnew_charp(p);
+	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
     } else {
 	item->onkeyup = NULL;
+    }
+    if (parsedtag_get_value(tag, ATTR_ONCHANGE, &p)) {
+	item->onchange = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+    } else {
+	item->onchange = NULL;
     }
 #endif
     if (item->type == FORM_INPUT_FILE && item->value && item->value->length) {

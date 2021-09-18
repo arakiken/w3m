@@ -73,7 +73,8 @@ extern JSValue js_eval2(JSContext *interp, char *str);
 
 extern char *js_get_cstr(JSContext *ctx, JSValue value);
 extern Str js_get_str(JSContext *ctx, JSValue value);
-extern int js_get_int(JSContext *ctx, JSValue value);
+extern Str js_get_function(JSContext *ctx, char *script);
+extern int js_get_int(JSContext *ctx, int *i, JSValue value);
 extern int js_is_true(JSContext *ctx, JSValue value);
 
 #endif

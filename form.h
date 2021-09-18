@@ -101,6 +101,7 @@ typedef struct form_item_list {
 #ifdef USE_SCRIPT
     Str onclick;
     Str onkeyup;
+    Str onchange;
 #endif
     struct form_list *parent;
     struct form_item_list *next;

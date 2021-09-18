@@ -516,7 +516,7 @@ typedef struct _Buffer {
     char *ssl_certificate;
 #endif
 #ifdef USE_SCRIPT
-    Str script_str;
+    GeneralList *script_str;
     void *script_interp;
     char *script_lang;
     char *location;
@@ -747,7 +747,7 @@ struct html_feed_environ {
     char *title;
     int blank_lines;
 #ifdef USE_SCRIPT
-    Str cur_script_str;
+    GeneralList *cur_script_str;
     char *cur_script_lang;
     void *script_interp;
     char *script_lang;

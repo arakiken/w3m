@@ -38,6 +38,40 @@ remove_quotation(char *str)
     return str;
 }
 
+static char *
+escape_cr_nl(Str src)
+{
+    char *p1 = src->ptr;
+    Str dst;
+    char *p2;
+
+    while (*p1 != '\r' && *p1 != '\n') {
+	if (*p1 == '\0') {
+	    return src->ptr;
+	}
+	p1++;
+    }
+
+    dst = Strnew();
+    p2 = src->ptr;
+
+    do {
+	Strcat_charp_n(dst, p2, p1 - p2);
+	if (*p1 == '\r') {
+	    //Strcat_charp(dst, "\\r");
+	    p2 = p1 + 1;
+	} else if (*p2 == '\n') {
+	    Strcat_charp(dst, "\\n");
+	    p2 = p1 + 1;
+	}
+	p1++;
+    } while (*p1);
+
+    Strcat_charp(dst, p2);
+
+    return dst->ptr;
+}
+
 #if 0
 static char *
 escape(char *name)
@@ -142,7 +176,7 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
     if (fi->name && fi->name->length > 0)
 	n = i2us(fi->name)->ptr;
     if (fi->value && fi->value->length > 0)
-	v = i2us(fi->value)->ptr;
+	v = escape_cr_nl(i2us(fi->value));
 
     switch (fi->type) { /* TODO: ... */
     case FORM_INPUT_TEXT:
@@ -221,14 +255,11 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	} else {
 	    int len;
 	    JSValue val2 = js_eval2(interp, Sprintf("document.forms[%d].%s.length;", i, n)->ptr);
-	    if (js_is_undefined(val2)) {
+	    if (!js_get_int(interp, &len, val2)) {
 		js_eval(interp, Sprintf("document.forms[%d].%s = [document.forms[%d].%s];",
 					i, n, i, n)->ptr);
 		len = 1;
-	    } else {
-		len = js_get_int(interp, val2);
 	    }
-	    js_free(interp, val2);
 
 	    js_eval(interp, Sprintf("document.forms[%d].%s[%d] = document.forms[%d].elements[%d];", i, n, len, i, j)->ptr);
 	}
@@ -262,12 +293,15 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"var screen = new Object();"
 		""
+		"var navigator = new Navigator();"
+		""
 		"var window = new Window();"
 		"window.document = document;"
 		"window.parent = window;"
 		"window.screen = screen;"
+		"window.navigator = navigator;"
 		""
-		"var navigator = new Navigator();"
+		"self = window;"
 		""
 	        "document.createElement = function(tagname) {"
 		"  if (tagname.toLowerCase() === \"form\") {"
@@ -306,7 +340,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  }"
 		"  let element = new HTMLElement(\"span\");"
 		"  element.id = id;"
-		"  return document.appendChild(element);"
+		"  return document.documentElement.appendChild(element);"
 		"};"
 		""
 		"document.getElementsByTagName = function(tagname) {"
@@ -339,7 +373,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  if (array.length == 0) {"
 		"    let element = new HTMLElement(\"span\");"
 		"    element.name = name;"
-		"    document.appendChild(element);"
+		"    document.documentElement.appendChild(element);"
 		"    array.push(element);"
 		"  }"
 		"  return array;"
@@ -381,7 +415,16 @@ script_buf2js(Buffer *buf, void *interp)
 		"    str += w3m_innerhtmls_to_str_intern(document.children[i]);"
 		"  }"
 		"  return str;"
-		"};");
+		"}"
+		""
+		"function setInterval(fn, tm) { fn(); }"
+		""
+		"function setTimeout(fn, tm) { fn(); }"
+		""
+		"/* facebook.com */"
+		"function requireLazy(a, fn) { fn(); }"
+		"function onloadRegister_DEPRECATED(fn) { fn(); }"
+		"function useragentcm() { ; }");
 
 	js_eval(interp, "var history = new History();");
     }
@@ -400,6 +443,7 @@ script_buf2js(Buffer *buf, void *interp)
 
     js_eval(interp, Sprintf("var location = new Location(\"%s\");",
 			    parsedURL2Str(&buf->currentURL)->ptr)->ptr);
+    js_eval(interp, "window.location = location;");
 
     i = 0;
     if (CurrentTab != NULL) {
@@ -483,6 +527,9 @@ script_buf2js(Buffer *buf, void *interp)
 		put_form_element(interp, i, j, fi);
 	    }
 
+	    /* http://alphasis.info/2013/12/javascript-gyakubiki-form-immediatelyreflect/ */
+	    js_eval(interp, Sprintf("document.forms[%d].length = document.forms[%d].elements.length;", i, i)->ptr);
+
 	    js_eval(interp, Sprintf("document.forms[%d].parentNode = document.forms[%d].parentElement = document.documentElement;", i, i)->ptr);
 	}
     }
@@ -522,12 +569,14 @@ static int
 get_form_element(void *interp, int i, int j, FormItemList *fi)
 {
     JSValue val;
-    Str str;
     int changed = 0;
+    Str str;
+    int flag;
+    int new_idx;
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].checked;", i, j)->ptr);
-    if (!js_is_undefined(val)) {
-	int flag = js_is_true(interp, val);
+    flag = js_is_true(interp, val);
+    if (flag != -1) {
 	if (flag != fi->checked) {
 	    if (flag && fi->type == FORM_INPUT_RADIO) {
 		FormList *fl = fi->parent;
@@ -544,7 +593,6 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 	    changed = 1;
 	}
     }
-    js_free(interp, val);
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].value;", i, j)->ptr);
     str = js_get_str(interp, val);
@@ -555,15 +603,27 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 	    changed = 1;
 	}
     }
-    js_free(interp, val);
+
+    str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onkeyup;", i, j)->ptr);
+    if (str != NULL) {
+	fi->onkeyup = u2is(str);
+    }
+
+    str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onclick;", i, j)->ptr);
+    if (str != NULL) {
+	fi->onclick = u2is(str);
+    }
+
+    str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onchange;", i, j)->ptr);
+    if (str != NULL) {
+	fi->onchange = u2is(str);
+    }
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex;", i, j)->ptr);
-    if (!js_is_undefined(val)) {
-	int new_idx;
+    if (js_get_int(interp, &new_idx, val)) {
 	int k;
 	FormSelectOptionItem *opt;
 
-	new_idx = js_get_int(interp, val);
 	if (new_idx != fi->selected) {
 	    for (k = 0, opt = fi->select_option; opt != NULL; k++, opt = opt->next) {
 		if (new_idx != fi->selected) {
@@ -581,8 +641,8 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 
 	    for (k = 0, opt = fi->select_option; opt != NULL; k++, opt = opt->next) {
 		val2 = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].options[%d].selected;", i, j, k)->ptr);
-		if (!js_is_undefined(val2)) {
-		    int flag = js_is_true(interp, val2);
+		int flag = js_is_true(interp, val2);
+		if (flag != -1) {
 		    if (flag != opt->checked) {
 			if (flag) {
 			    FormSelectOptionItem *o;
@@ -601,11 +661,9 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 			break;
 		    }
 		}
-		js_free(interp, val2);
 	    }
 	}
     }
-    js_free(interp, val);
 
     return changed;
 }
@@ -853,35 +911,40 @@ script_js2buf(Buffer *buf, void *interp)
 			fl->method = FORM_METHOD_GET;
 		    }
 		}
-		js_free(interp, value2);
 
 		value2 = js_eval2(interp, Sprintf("document.forms[%d].action;", i)->ptr);
 		str = js_get_str(interp, value2);
 		if (str != NULL) {
 		    fl->action = str;
 		}
-		js_free(interp, value2);
 
 		value2 = js_eval2(interp, Sprintf("document.forms[%d].target;", i)->ptr);
 		cstr = js_get_cstr(interp, value2);
 		if (cstr != NULL) {
 		    fl->target = cstr;
 		}
-		js_free(interp, value2);
 
 		value2 = js_eval2(interp, Sprintf("document.forms[%d].name;", i)->ptr);
 		cstr = js_get_cstr(interp, value2);
 		if (cstr != NULL) {
-		    fl->name = cstr;
+		    fl->name = u2ic(cstr);
 		}
-		js_free(interp, value2);
 
 		value2 = js_eval2(interp, Sprintf("document.forms[%d].id;", i)->ptr);
 		cstr = js_get_cstr(interp, value2);
 		if (cstr != NULL) {
 		    fl->id = cstr;
 		}
-		js_free(interp, value2);
+
+		str = js_get_function(interp, Sprintf("document.forms[%d].onsubmit;", i)->ptr);
+		if (str != NULL) {
+		    fl->onsubmit = u2is(str)->ptr;
+		}
+
+		str = js_get_function(interp, Sprintf("document.forms[%d].onreset;", i)->ptr);
+		if (str != NULL) {
+		    fl->onreset = u2is(str)->ptr;
+		}
 
 		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
 		    changed |= get_form_element(interp, i, j, fi);
@@ -906,10 +969,9 @@ script_js2buf(Buffer *buf, void *interp)
 
     value = js_eval2(interp, "w3m_innerhtmls_to_str();");
     Str str = js_get_str(interp, value);
-    if (str != NULL) {
+    if (str != NULL && *str->ptr != '\0') {
 	set_delayed_message(u2is(str)->ptr);
     }
-    js_free(interp, value);
 
     if (alert_msg) {
 	set_delayed_message(u2ic(alert_msg));
@@ -935,6 +997,32 @@ script_js2buf(Buffer *buf, void *interp)
     js_free(interp, value);
 
     return NULL;
+}
+
+static void
+onload(void *interp)
+{
+    js_eval(interp,
+	    "function w3m_onload(element) {"
+	    "  if (element.onload != undefined) {"
+	    "    element.onload();"
+	    "  }"
+	    "  for (let i = 0; i < element.children.length; i++) {"
+	    "    w3m_onload(element.children[i]);"
+	    "  }"
+	    "}"
+	    ""
+	    "for (let i = 0; i < document.forms.length; i++) {"
+	    "  w3m_onload(document.forms[i]);"
+	    "}"
+	    "for (let i = 0; i < document.children.length; i++) {"
+	    "  w3m_onload(document.children[i]);"
+	    "}"
+	    "w3m_onload(document.body);"
+	    ""
+	    "if (window.onload != undefined) {"
+	    "  window.onload(); window.onload = undefined;"
+	    "}");
 }
 
 static int
@@ -964,6 +1052,7 @@ script_js_eval(Buffer *buf, char *script, Str *output)
     }
 
     ret = js_eval2(interp, script);
+    onload(interp);
 
     str = script_js2buf(buf, interp);
     if (output) {

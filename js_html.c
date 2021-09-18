@@ -23,6 +23,23 @@ JSClassID ElementClassID;
 
 char *alert_msg;
 
+static Str
+get_str(JSContext *ctx, JSValue value)
+{
+    const char *str;
+    size_t len;
+    Str new_str;
+
+    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	return NULL;
+    }
+
+    new_str = Strnew_charp_n(str, len);
+    JS_FreeCString(ctx, str);
+
+    return new_str;
+}
+
 static void
 window_final(JSRuntime *rt, JSValue val) {
     GC_FREE(JS_GetOpaque(val, WindowClassID));
@@ -174,7 +191,7 @@ location_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     bzero(state, sizeof(LocationState));
     if (argc > 0) {
-	if ((state->url = js_get_str(ctx, argv[0])) == NULL) {
+	if ((state->url = get_str(ctx, argv[0])) == NULL) {
 	    return JS_EXCEPTION;
 	}
 
@@ -195,7 +212,7 @@ location_replace(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str str;
 
-    if (argc != 1 || (str = js_get_str(ctx, argv[0])) == NULL) {
+    if (argc != 1 || (str = get_str(ctx, argv[0])) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -233,7 +250,7 @@ location_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str str;
 
-    if ((str = js_get_str(ctx, val)) == NULL) {
+    if ((str = get_str(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -297,7 +314,7 @@ location_protocol_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     Str s;
     char *p;
 
-    if ((s = js_get_str(ctx, val)) == NULL) {
+    if ((s = get_str(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -547,6 +564,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "nextSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
+    JS_SetPropertyStr(ctx, obj, "nodeValue", JS_NULL);
 }
 
 static JSValue
@@ -798,6 +816,16 @@ element_owner_document_get(JSContext *ctx, JSValueConst jsThis)
     return JS_Eval(ctx, "document;", 9, "<input>", EVAL_FLAG);
 }
 
+static JSValue
+element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    return JS_FALSE;
+}
+
 static const JSCFunctionListEntry ElementFuncs[] = {
     /* HTMLElement */
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
@@ -810,6 +838,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
     JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
+    JS_CFUNC_DEF("matches", 1, element_matches),
 
     /* HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, form_element_submit),
@@ -1155,6 +1184,7 @@ js_html_init(void)
     JSContext *ctx;
     JSValue gl;
     JSValue proto;
+    JSValue ctor;
     JSValue *tagnames;
     int i;
 
@@ -1173,8 +1203,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, WindowFuncs,
 			       sizeof(WindowFuncs) / sizeof(WindowFuncs[0]));
     JS_SetClassProto(ctx, WindowClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Window",
-		      JS_NewCFunction2(ctx, window_new, "Window", 1, JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, window_new, "Window", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "Window", ctor);
 
     if (LocationClassID == 0) {
 	JS_NewClassID(&LocationClassID);
@@ -1184,8 +1215,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, LocationFuncs,
 			       sizeof(LocationFuncs) / sizeof(LocationFuncs[0]));
     JS_SetClassProto(ctx, LocationClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Location",
-		      JS_NewCFunction2(ctx, location_new, "Location", 1, JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, location_new, "Location", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "Location", ctor);
     JS_SetPropertyStr(ctx, gl, "location", location_new(ctx, JS_NULL, 0, NULL));
 
     if (HTMLFormElementClassID == 0) {
@@ -1196,9 +1228,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
 			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
     JS_SetClassProto(ctx, HTMLFormElementClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "HTMLFormElement",
-		      JS_NewCFunction2(ctx, form_element_new, "HTMLFormElement", 1,
-				       JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, form_element_new, "HTMLFormElement", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "HTMLFormElement", ctor);
 
     if (HTMLElementClassID == 0) {
 	JS_NewClassID(&HTMLElementClassID);
@@ -1208,9 +1240,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
 			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
     JS_SetClassProto(ctx, HTMLElementClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "HTMLElement",
-		      JS_NewCFunction2(ctx, html_element_new, "HTMLElement", 1,
-				       JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, html_element_new, "HTMLElement", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "HTMLElement", ctor);
 
     if (ElementClassID == 0) {
 	JS_NewClassID(&ElementClassID);
@@ -1220,8 +1252,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
 			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
     JS_SetClassProto(ctx, ElementClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Element",
-		      JS_NewCFunction2(ctx, element_new, "Element", 1, JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, element_new, "Element", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "Element", ctor);
 
     if (HistoryClassID == 0) {
 	JS_NewClassID(&HistoryClassID);
@@ -1231,8 +1264,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, HistoryFuncs,
 			       sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]));
     JS_SetClassProto(ctx, HistoryClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "History",
-		      JS_NewCFunction2(ctx, history_new, "History", 1, JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, history_new, "History", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "History", ctor);
 
     if (NavigatorClassID == 0) {
 	JS_NewClassID(&NavigatorClassID);
@@ -1242,9 +1276,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, NavigatorFuncs,
 			       sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]));
     JS_SetClassProto(ctx, NavigatorClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Navigator",
-		      JS_NewCFunction2(ctx, navigator_new, "Navigator", 1,
-				       JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, navigator_new, "Navigator", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "Navigator", ctor);
 
     if (DocumentClassID == 0) {
 	JS_NewClassID(&DocumentClassID);
@@ -1254,8 +1288,9 @@ js_html_init(void)
     JS_SetPropertyFunctionList(ctx, proto, DocumentFuncs,
 			       sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]));
     JS_SetClassProto(ctx, DocumentClassID, proto);
-    JS_SetPropertyStr(ctx, gl, "Document",
-		      JS_NewCFunction2(ctx, document_new, "Document", 1, JS_CFUNC_constructor, 0));
+    ctor = JS_NewCFunction2(ctx, document_new, "Document", 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, "Document", ctor);
 
     JS_SetPropertyStr(ctx, gl, "alert", JS_NewCFunction(ctx, window_alert, "alert", 1));
     JS_SetPropertyStr(ctx, gl, "confirm", JS_NewCFunction(ctx, window_confirm, "confirm", 1));
@@ -1323,11 +1358,15 @@ js_get_cstr(JSContext *ctx, JSValue value)
     char *new_str;
 
     if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	JS_FreeValue(ctx, value);
+
 	return NULL;
     }
 
     new_str = allocStr(str, len);
+
     JS_FreeCString(ctx, str);
+    JS_FreeValue(ctx, value);
 
     return new_str;
 }
@@ -1335,28 +1374,60 @@ js_get_cstr(JSContext *ctx, JSValue value)
 Str
 js_get_str(JSContext *ctx, JSValue value)
 {
-    const char *str;
-    size_t len;
-    Str new_str;
-
-    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
-	return NULL;
-    }
-
-    new_str = Strnew_charp_n(str, len);
-    JS_FreeCString(ctx, str);
+    Str new_str = get_str(ctx, value);
+    JS_FreeValue(ctx, value);
 
     return new_str;
 }
 
+Str
+js_get_function(JSContext *ctx, char *script) {
+    JSValue value = js_eval2(ctx, script);
+    const char *cstr;
+    const char *p;
+    size_t len;
+    Str str;
+
+    if (!JS_IsFunction(ctx, value) || (cstr = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	JS_FreeValue(ctx, value);
+
+	return NULL;
+    }
+
+    p = cstr;
+    while (*p == ' ' || *p == '\t') p++;
+    if (strncmp(p, "function", 8) == 0) {
+	p += 8;
+	while (*p == ' ' || *p == '\t') p++;
+	if (strncmp(p, "()", 2) == 0) {
+	    str = Strnew_charp(p + 2);
+	    goto end;
+	}
+    }
+
+    str = Strnew_charp_n(cstr, len);
+
+ end:
+    JS_FreeCString(ctx, cstr);
+    JS_FreeValue(ctx, value);
+
+    return str;
+}
+
+
 int
-js_get_int(JSContext *ctx, JSValue value)
+js_get_int(JSContext *ctx, int *i, JSValue value)
 {
-    int i;
+    if (JS_IsUndefined(value)) {
+	JS_FreeValue(ctx, value);
 
-    JS_ToInt32(ctx, &i, value);
+	return 0;
+    }
 
-    return i;
+    JS_ToInt32(ctx, i, value);
+    JS_FreeValue(ctx, value);
+
+    return 1;
 }
 
 /* Regard "true" or "false" string as true or false value. */
@@ -1376,12 +1447,14 @@ js_is_true(JSContext *ctx, JSValue value)
 	    }
 	}
 	JS_FreeCString(ctx, str);
+    } else if (!JS_IsUndefined(value)) {
+	flag = JS_ToBool(ctx, value);
+    } else {
+	flag = -1;
     }
 
-    if (flag == -1) {
-	return JS_ToBool(ctx, value);
-    } else {
-	return flag;
-    }
+    JS_FreeValue(ctx, value);
+
+    return flag;
 }
 #endif
