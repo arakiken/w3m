@@ -10,9 +10,11 @@ extern JSClassID NavigatorClassID;
 extern JSClassID HistoryClassID;
 extern JSClassID HTMLFormElementClassID;
 extern JSClassID HTMLElementClassID;
-extern JSClassID ElementClassID;
 
 extern char *alert_msg;
+
+extern int term_ppc;
+extern int term_ppl;
 
 typedef struct _OpenWindow {
     char *url;
@@ -28,6 +30,7 @@ typedef struct _DocumentState {
     Str write;
     Str cookie;
     int cookie_changed;
+    int open;
 } DocumentState;
 
 typedef struct _NavigatorState {

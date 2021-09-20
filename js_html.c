@@ -3,8 +3,9 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
-#define NUM_TAGNAMES 1
+#define NUM_TAGNAMES 2
 #define TN_FORM 0
+#define TN_IMG 1
 
 #if 1
 #define EVAL_FLAG 0
@@ -19,9 +20,16 @@ JSClassID NavigatorClassID;
 JSClassID HistoryClassID;
 JSClassID HTMLFormElementClassID;
 JSClassID HTMLElementClassID;
-JSClassID ElementClassID;
+static JSClassID HTMLImageElementClassID;
+static JSClassID ElementClassID;
+static JSClassID SVGElementClassID;
 
 char *alert_msg;
+
+static JSRuntime *rt;
+
+int term_ppc;
+int term_ppl;
 
 static Str
 get_str(JSContext *ctx, JSValue value)
@@ -38,6 +46,59 @@ get_str(JSContext *ctx, JSValue value)
     JS_FreeCString(ctx, str);
 
     return new_str;
+}
+
+static JSValue
+add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *type;
+
+    if (argc < 2) {
+	return JS_EXCEPTION;
+    }
+
+#if 0
+    FILE *fp = fopen("w3mlog.txt", "a");
+    fprintf(fp, "%s\n", JS_ToCString(ctx, argv[1]));
+    fclose(fp);
+#endif
+
+    type = JS_ToCString(ctx, argv[0]);
+    if (strcmp(type, "load") == 0 || strcmp(type, "DOMContentLoaded") == 0) {
+	JSValue gl = JS_GetGlobalObject(ctx);
+	JSValue listeners = JS_GetPropertyStr(ctx, gl, "w3m_eventListeners");
+	JSValue prop = JS_GetPropertyStr(ctx, listeners, "push");
+
+	JSValue event = JS_NewObject(ctx);
+	JS_SetPropertyStr(ctx, event, "type", JS_DupValue(ctx, argv[0]));
+	JS_SetPropertyStr(ctx, event, "currentTarget", JS_DupValue(ctx, jsThis));
+	JS_SetPropertyStr(ctx, event, "callback", JS_DupValue(ctx, argv[1]));
+
+	JS_FreeValue(ctx, JS_Call(ctx, prop, listeners, 1, &event));
+
+	JS_FreeValue(ctx, event);
+	JS_FreeValue(ctx, prop);
+	JS_FreeValue(ctx, listeners);
+	JS_FreeValue(ctx, gl);
+    } else if (strcmp(type, "click") == 0) {
+	JS_SetPropertyStr(ctx, jsThis, "onclick", JS_DupValue(ctx, argv[1]));
+    }
+
+    JS_FreeCString(ctx, type);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+remove_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+dispatch_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
 }
 
 static void
@@ -163,7 +224,41 @@ window_confirm(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 static JSValue
 window_get_computed_style(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    JSValue style;
+
+    if (argc != 1 && argc != 2) {
+	return JS_EXCEPTION;
+    }
+
+    style = JS_GetPropertyStr(ctx, argv[0], "style");
+    if (!JS_IsUndefined(style)) {
+	return JS_DupValue(ctx, style);
+    } else {
+	return JS_UNDEFINED;
+    }
+}
+
+static JSValue
+window_scroll(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
     return JS_UNDEFINED;
+}
+
+static JSValue
+window_get_selection(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    /* XXX getSelection() should return Selection object. */
+    return JS_NewString(ctx, "");
+}
+
+static JSValue
+window_match_media(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue result = JS_NewObject(ctx); /* XXX MediaQueryList */
+
+    JS_SetPropertyStr(ctx, result, "matches", JS_FALSE);
+
+    return result;
 }
 
 static const JSCFunctionListEntry WindowFuncs[] = {
@@ -172,6 +267,14 @@ static const JSCFunctionListEntry WindowFuncs[] = {
     JS_CFUNC_DEF("alert", 1, window_alert),
     JS_CFUNC_DEF("confirm", 1, window_confirm),
     JS_CFUNC_DEF("getComputedStyle", 1, window_get_computed_style),
+    JS_CFUNC_DEF("scroll", 1, window_scroll),
+    JS_CFUNC_DEF("scrollTo", 1, window_scroll),
+    JS_CFUNC_DEF("scrollBy", 1, window_scroll),
+    JS_CFUNC_DEF("getSelection", 1, window_get_selection),
+    JS_CFUNC_DEF("matchMedia", 1, window_match_media),
+    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
+    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
+    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
 };
 
 static void
@@ -537,27 +640,34 @@ static const JSCFunctionListEntry LocationFuncs[] = {
 };
 
 static void
-form_element_final(JSRuntime *rt, JSValue val) {
+html_form_element_final(JSRuntime *rt, JSValue val) {
     GC_FREE(JS_GetOpaque(val, HTMLFormElementClassID));
 }
 
 static const JSClassDef HTMLFormElementClass = {
-    "HTMLFormElement", form_element_final, NULL /* gc_mark */, NULL /* call */, NULL
+    "HTMLFormElement", html_form_element_final, NULL /* gc_mark */, NULL /* call */, NULL
 };
 
 static void
 set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
+    JSValue style;
     JSValue cw;
     JSValue array;
 
-    JS_SetPropertyStr(ctx, obj, "style", JS_NewObject(ctx));
+    style = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, style, "fontSize",
+		      JS_NewString(ctx, Sprintf("%dpx", term_ppl)->ptr));
+    JS_SetPropertyStr(ctx, obj, "style", style);
+
     cw = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, cw, "document", JS_NewObjectClass(ctx, DocumentClassID));
     JS_SetPropertyStr(ctx, obj, "contentWindow", cw);
-    array = JS_NewArray(ctx); /* XXX HTMLCollection */
+
+    array = JS_Eval(ctx, "new HTMLCollection();", 21, "<input>", EVAL_FLAG);
     JS_SetPropertyStr(ctx, obj, "children", array);
-    JS_SetPropertyStr(ctx, obj, "childNodes", JS_DupValue(ctx, array)); /* XXX */
+    JS_SetPropertyStr(ctx, obj, "childNodes", JS_DupValue(ctx, array)); /* XXX NodeList */
+
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
@@ -565,10 +675,12 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
     JS_SetPropertyStr(ctx, obj, "nodeValue", JS_NULL);
+    JS_SetPropertyStr(ctx, obj, "innerText", JS_NewString(ctx, ""));
+    JS_SetPropertyStr(ctx, obj, "textContent", JS_NewString(ctx, ""));
 }
 
 static JSValue
-form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+html_form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
     JSValue *tagnames;
@@ -595,7 +707,7 @@ form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
 }
 
 static JSValue
-form_element_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+html_form_element_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     HTMLFormElementState *state = JS_GetOpaque(jsThis, HTMLFormElementClassID);
 
@@ -605,7 +717,7 @@ form_element_submit(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 }
 
 static JSValue
-form_element_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+html_form_element_reset(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     HTMLFormElementState *state = JS_GetOpaque(jsThis, HTMLFormElementClassID);
 
@@ -629,6 +741,51 @@ html_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     }
 
     obj = JS_NewObjectClass(ctx, HTMLElementClassID);
+    set_element_property(ctx, obj, argv[0]);
+
+    return obj;
+}
+
+static const JSClassDef HTMLImageElementClass = {
+    "HTMLImageElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+html_image_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+    JSValue *tagnames;
+
+    if (argc != 0) {
+	return JS_EXCEPTION;
+    }
+
+    tagnames = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(tagnames[TN_IMG])) {
+	tagnames[TN_FORM] = JS_NewString(ctx, "img");
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLImageElementClassID);
+    set_element_property(ctx, obj, tagnames[TN_IMG]);
+
+    return obj;
+}
+
+static const JSClassDef SVGElementClass = {
+    "SVGElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+svg_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+
+    /* XXX */
+    if (argc != 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    obj = JS_NewObjectClass(ctx, SVGElementClassID);
     set_element_property(ctx, obj, argv[0]);
 
     return obj;
@@ -661,7 +818,7 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
     JSValue vret;
     int32_t iret;
 
-    if (argc != 1) {
+    if (argc != 1 /* appendChild */ && argc != 2 /* insertBefore */) {
 	return JS_EXCEPTION;
     }
 
@@ -739,19 +896,71 @@ element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 static JSValue
 element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    const char *key;
-
     if (argc != 2) {
 	return JS_EXCEPTION;
     }
 
     if (JS_IsString(argv[0])) {
-	key = JS_ToCString(ctx, argv[0]);
+	const char *key = JS_ToCString(ctx, argv[0]);
 	JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
 	JS_FreeCString(ctx, key);
     }
 
     return JS_UNDEFINED;
+}
+
+static JSValue
+element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	const char *key = JS_ToCString(ctx, argv[0]);
+	JSValue prop = JS_GetPropertyStr(ctx, jsThis, key);
+	JS_FreeCString(ctx, key);
+
+	if (!JS_IsUndefined(prop)) {
+	    return prop;
+	} else {
+	    JS_FreeValue(ctx, prop);
+	}
+    }
+
+    return JS_NULL;
+}
+
+static JSValue
+element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc != 2) {
+	return JS_EXCEPTION;
+    }
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue ret = JS_FALSE;
+
+    if (argc != 1) {
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	const char *key = JS_ToCString(ctx, argv[0]);
+	JSValue prop = JS_GetPropertyStr(ctx, jsThis, key);
+	if (!JS_IsUndefined(prop)) {
+	    ret = JS_TRUE;
+	}
+	JS_FreeCString(ctx, key);
+	JS_FreeValue(ctx, prop);
+    }
+
+    return ret;
 }
 
 static JSValue
@@ -791,11 +1000,13 @@ element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
 static JSValue
 element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] = "if (this.children.length > 0) {"
-	            "  this.children[0];"
-                    "} else {"
-	            "  null;"
-		    "}";
+    char script[] =
+	"if (this.children.length > 0) {"
+	"  this.children[0];"
+	"} else {"
+	"  null;"
+	"}";
+
     return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
 }
 
@@ -823,7 +1034,15 @@ element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 	return JS_EXCEPTION;
     }
 
+    /* XXX argv[0] is CSS selector. */
+
     return JS_FALSE;
+}
+
+static JSValue
+element_attributes_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_EvalThis(ctx, jsThis, "w3m_elementAttributes(this);", 28, "<input>", EVAL_FLAG);
 }
 
 static const JSCFunctionListEntry ElementFuncs[] = {
@@ -833,16 +1052,23 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
     JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
     JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
+    JS_CFUNC_DEF("getAttribute", 1, element_get_attribute),
+    JS_CFUNC_DEF("removeAttribute", 1, element_remove_attribute),
+    JS_CFUNC_DEF("hasAttribute", 1, element_has_attribute),
     JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
     JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
     JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
     JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("matches", 1, element_matches),
+    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
+    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
+    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
+    JS_CGETSET_DEF("attributes", element_attributes_get, NULL),
 
     /* HTMLFormElement */
-    JS_CFUNC_DEF("submit", 1, form_element_submit),
-    JS_CFUNC_DEF("reset", 1, form_element_reset),
+    JS_CFUNC_DEF("submit", 1, html_form_element_submit),
+    JS_CFUNC_DEF("reset", 1, html_form_element_reset),
 };
 
 static void
@@ -910,10 +1136,24 @@ history_go(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     return JS_UNDEFINED;
 }
 
+static JSValue
+history_push_state(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+history_replace_state(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry HistoryFuncs[] = {
     JS_CFUNC_DEF("back", 1, history_back),
     JS_CFUNC_DEF("forward", 1, history_forward),
     JS_CFUNC_DEF("go", 1, history_go),
+    JS_CFUNC_DEF("pushState", 1, history_push_state),
+    JS_CFUNC_DEF("replaceState", 1, history_replace_state),
 };
 
 static void
@@ -1021,11 +1261,22 @@ navigator_useragent_get(JSContext *ctx, JSValueConst jsThis)
     return JS_NewStringLen(ctx, state->useragent->ptr, state->useragent->length);
 }
 
+static JSValue
+navigator_cookieenabled_get(JSContext *ctx, JSValueConst jsThis)
+{
+    if (use_cookie) {
+	return JS_TRUE;
+    } else {
+	return JS_FALSE;
+    }
+}
+
 static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("appCodeName", navigator_appcodename_get, NULL),
     JS_CGETSET_DEF("appName", navigator_appname_get, NULL),
     JS_CGETSET_DEF("appVersion", navigator_appversion_get, NULL),
     JS_CGETSET_DEF("userAgent", navigator_useragent_get, NULL),
+    JS_CGETSET_DEF("cookieEnabled", navigator_cookieenabled_get, NULL),
 };
 
 static void
@@ -1052,10 +1303,25 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
     state->write = NULL;
     state->cookie = NULL;
-
     JS_SetOpaque(obj, state);
 
     return obj;
+}
+
+static JSValue
+document_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    DocumentState *state = JS_GetOpaque(jsThis, DocumentClassID);
+
+    state->open = 1;
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+document_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
 }
 
 static JSValue
@@ -1138,12 +1404,17 @@ document_cookie_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 }
 
 static const JSCFunctionListEntry DocumentFuncs[] = {
+    JS_CFUNC_DEF("open", 1, document_open),
+    JS_CFUNC_DEF("close", 1, document_close),
     JS_CFUNC_DEF("write", 1, document_write),
     JS_CFUNC_DEF("writeln", 1, document_writeln),
     JS_CGETSET_DEF("location", document_location_get, document_location_set),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
-    JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set)
+    JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set),
+    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
+    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
+    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event)
 };
 
 #if 0
@@ -1177,16 +1448,78 @@ io_stderr (void *context, unsigned char *buffer, unsigned int amount)
 }
 #endif
 
+static void
+create_class(JSContext *ctx, JSValue gl, JSClassID *id, char *name,
+	     const JSCFunctionListEntry *funcs, int num_funcs, const JSClassDef *class,
+	     JSValue (*ctor_func)(JSContext *, JSValueConst, int, JSValueConst *))
+{
+    JSValue proto;
+    JSValue ctor;
+
+    if (*id == 0) {
+	JS_NewClassID(id);
+	JS_NewClass(rt, *id, class);
+    }
+    proto = JS_NewObject(ctx);
+    JS_SetPropertyFunctionList(ctx, proto, funcs, num_funcs);
+    JS_SetClassProto(ctx, *id, proto);
+    ctor = JS_NewCFunction2(ctx, ctor_func, name, 1, JS_CFUNC_constructor, 0);
+    JS_SetConstructor(ctx, ctor, proto);
+    JS_SetPropertyStr(ctx, gl, name, ctor);
+}
+
 JSContext *
 js_html_init(void)
 {
-    static JSRuntime *rt;
     JSContext *ctx;
     JSValue gl;
-    JSValue proto;
-    JSValue ctor;
     JSValue *tagnames;
     int i;
+    char script[] =
+	"class NodeList extends Array {};"
+	"class HTMLCollection extends Array {};"
+	""
+	"/* Element.attributes */"
+	"function w3m_elementAttributes(obj) {"
+	"  let attribute_keys = Object.keys(obj);"
+	"  let attrs = new Array(); /* XXX NamedNodeMap */"
+	"  for (let i = 0; i < attribute_keys.length; i++) {"
+	"    let key = attribute_keys[i];"
+	"    let value = obj[key];"
+	"    /* XXX */"
+	"    if (typeof value === \"string\") {"
+	"      if (key === \"tagName\" || key === \"innerText\" ||"
+	"          key === \"innerHTML\") {"
+	"        continue;"
+	"      } else if (key === \"className\") {"
+	"        key = \"class\";"
+	"      }"
+	"    } else if (typeof value === \"function\") {"
+	"      /* XXX onclick attr is not set in script.c for now. */"
+	"      if (key !== \"onclick\") {"
+	"        continue;"
+	"      }"
+	"      value = value.toString();"
+	"    } else {"
+	"      continue;"
+	"    }"
+	"    if (value === \"\") {"
+	"      continue;"
+	"    }"
+	"    let attr = new Object();"
+	"    attr.name = key;"
+	"    attr.value = value;"
+	"    attrs.push(attr);"
+	"  }"
+	"  return attrs;"
+	"}";
+
+    if (term_ppc == 0) {
+	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
+	    term_ppc = 8;
+	    term_ppl = 16;
+	}
+    }
 
     if (rt == NULL) {
 	rt = JS_NewRuntime();
@@ -1195,105 +1528,52 @@ js_html_init(void)
     ctx = JS_NewContext(rt);
     gl = JS_GetGlobalObject(ctx);
 
-    if (WindowClassID == 0) {
-	JS_NewClassID(&WindowClassID);
-	JS_NewClass(rt, WindowClassID, &WindowClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, WindowFuncs,
-			       sizeof(WindowFuncs) / sizeof(WindowFuncs[0]));
-    JS_SetClassProto(ctx, WindowClassID, proto);
-    ctor = JS_NewCFunction2(ctx, window_new, "Window", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "Window", ctor);
+    JS_Eval(ctx, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
 
-    if (LocationClassID == 0) {
-	JS_NewClassID(&LocationClassID);
-	JS_NewClass(rt, LocationClassID, &LocationClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, LocationFuncs,
-			       sizeof(LocationFuncs) / sizeof(LocationFuncs[0]));
-    JS_SetClassProto(ctx, LocationClassID, proto);
-    ctor = JS_NewCFunction2(ctx, location_new, "Location", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "Location", ctor);
-    JS_SetPropertyStr(ctx, gl, "location", location_new(ctx, JS_NULL, 0, NULL));
+    create_class(ctx, gl, &WindowClassID, "Window", WindowFuncs,
+		 sizeof(WindowFuncs) / sizeof(WindowFuncs[0]), &WindowClass,
+		 window_new);
 
-    if (HTMLFormElementClassID == 0) {
-	JS_NewClassID(&HTMLFormElementClassID);
-	JS_NewClass(rt, HTMLFormElementClassID, &HTMLFormElementClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
-			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
-    JS_SetClassProto(ctx, HTMLFormElementClassID, proto);
-    ctor = JS_NewCFunction2(ctx, form_element_new, "HTMLFormElement", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "HTMLFormElement", ctor);
+    create_class(ctx, gl, &LocationClassID, "Location", LocationFuncs,
+		 sizeof(LocationFuncs) / sizeof(LocationFuncs[0]), &LocationClass,
+		 location_new);
 
-    if (HTMLElementClassID == 0) {
-	JS_NewClassID(&HTMLElementClassID);
-	JS_NewClass(rt, HTMLElementClassID, &HTMLElementClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
-			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
-    JS_SetClassProto(ctx, HTMLElementClassID, proto);
-    ctor = JS_NewCFunction2(ctx, html_element_new, "HTMLElement", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "HTMLElement", ctor);
+    create_class(ctx, gl, &HTMLFormElementClassID, "HTMLFormElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]), &HTMLFormElementClass,
+		 html_form_element_new);
 
-    if (ElementClassID == 0) {
-	JS_NewClassID(&ElementClassID);
-	JS_NewClass(rt, ElementClassID, &ElementClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, ElementFuncs,
-			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2);
-    JS_SetClassProto(ctx, ElementClassID, proto);
-    ctor = JS_NewCFunction2(ctx, element_new, "Element", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "Element", ctor);
+    create_class(ctx, gl, &HTMLElementClassID, "HTMLElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLElementClass,
+		 html_element_new);
 
-    if (HistoryClassID == 0) {
-	JS_NewClassID(&HistoryClassID);
-	JS_NewClass(rt, HistoryClassID, &HistoryClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, HistoryFuncs,
-			       sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]));
-    JS_SetClassProto(ctx, HistoryClassID, proto);
-    ctor = JS_NewCFunction2(ctx, history_new, "History", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "History", ctor);
+    create_class(ctx, gl, &HTMLImageElementClassID, "HTMLImageElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLImageElementClass,
+		 html_image_element_new);
 
-    if (NavigatorClassID == 0) {
-	JS_NewClassID(&NavigatorClassID);
-	JS_NewClass(rt, NavigatorClassID, &NavigatorClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, NavigatorFuncs,
-			       sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]));
-    JS_SetClassProto(ctx, NavigatorClassID, proto);
-    ctor = JS_NewCFunction2(ctx, navigator_new, "Navigator", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "Navigator", ctor);
+    create_class(ctx, gl, &SVGElementClassID, "SVGElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &SVGElementClass,
+		 svg_element_new);
 
-    if (DocumentClassID == 0) {
-	JS_NewClassID(&DocumentClassID);
-	JS_NewClass(rt, DocumentClassID, &DocumentClass);
-    }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, DocumentFuncs,
-			       sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]));
-    JS_SetClassProto(ctx, DocumentClassID, proto);
-    ctor = JS_NewCFunction2(ctx, document_new, "Document", 1, JS_CFUNC_constructor, 0);
-    JS_SetConstructor(ctx, ctor, proto);
-    JS_SetPropertyStr(ctx, gl, "Document", ctor);
+    create_class(ctx, gl, &ElementClassID, "Element", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &ElementClass,
+		 element_new);
+
+    create_class(ctx, gl, &HistoryClassID, "History", HistoryFuncs,
+		 sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]), &HistoryClass,
+		 history_new);
+
+    create_class(ctx, gl, &NavigatorClassID, "Navigator", NavigatorFuncs,
+		 sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]), &NavigatorClass,
+		 navigator_new);
+
+    create_class(ctx, gl, &DocumentClassID, "Document", DocumentFuncs,
+		 sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]), &DocumentClass,
+		 document_new);
 
     JS_SetPropertyStr(ctx, gl, "alert", JS_NewCFunction(ctx, window_alert, "alert", 1));
     JS_SetPropertyStr(ctx, gl, "confirm", JS_NewCFunction(ctx, window_confirm, "confirm", 1));
+
+    JS_SetPropertyStr(ctx, gl, "w3m_eventListeners", JS_NewArray(ctx));
 
     JS_FreeValue(ctx, gl);
 

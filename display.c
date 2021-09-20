@@ -1283,7 +1283,13 @@ disp_message_nomouse(char *s, int redraw_current)
 void
 set_delayed_message(char *s)
 {
+    char *p;
     delayed_msg = allocStr(s, -1);
+    for (p = delayed_msg; *p; p++) {
+	if (*p == '\r' || *p == '\n') {
+	    *p = ' ';
+	}
+    }
 }
 
 void

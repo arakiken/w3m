@@ -38,16 +38,16 @@ remove_quotation(char *str)
     return str;
 }
 
-static char *
-escape_cr_nl(Str src)
+static Str
+escape_value(Str src)
 {
     char *p1 = src->ptr;
     Str dst;
     char *p2;
 
-    while (*p1 != '\r' && *p1 != '\n') {
+    while (*p1 != '\r' && *p1 != '\n' && *p1 != '\"' && *p1 != '\'') {
 	if (*p1 == '\0') {
-	    return src->ptr;
+	    return src;
 	}
 	p1++;
     }
@@ -55,21 +55,32 @@ escape_cr_nl(Str src)
     dst = Strnew();
     p2 = src->ptr;
 
-    do {
-	Strcat_charp_n(dst, p2, p1 - p2);
-	if (*p1 == '\r') {
-	    //Strcat_charp(dst, "\\r");
-	    p2 = p1 + 1;
-	} else if (*p2 == '\n') {
-	    Strcat_charp(dst, "\\n");
-	    p2 = p1 + 1;
+    while (1) {
+	char *str;
+
+	if (*p1 == '\0') {
+	    break;
+	} else if (*p1 == '\r') {
+	    str = "\\r";
+	} else if (*p1 == '\n') {
+	    str = "\\n";
+	} else if (*p1 == '\"') {
+	    str = "\\\x22";
+	} else if (*p1 == '\'') {
+	    str = "\\'";
+	} else {
+	    p1++;
+	    continue;
 	}
-	p1++;
-    } while (*p1);
+
+	Strcat_charp_n(dst, p2, p1 - p2);
+	Strcat_charp(dst, str);
+	p2 = ++p1;
+    }
 
     Strcat_charp(dst, p2);
 
-    return dst->ptr;
+    return dst;
 }
 
 #if 0
@@ -124,10 +135,10 @@ check_property_name(char *name)
 #endif
 
 /*
- * document -> documentElement
+ * document -> documentElement(<html>) -> children, childNodes -> ...
  *          -> body
  *          -> head
- *          -> children, childNodes -> orphan elements
+ *          -> children, childNodes -> body, head, orphan elements
  *                                     (see getElementById() and getElementsByName())
  *          -> forms -> elements, children -> options, children
  */
@@ -176,18 +187,18 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
     if (fi->name && fi->name->length > 0)
 	n = i2us(fi->name)->ptr;
     if (fi->value && fi->value->length > 0)
-	v = escape_cr_nl(i2us(fi->value));
+	v = escape_value(i2us(fi->value))->ptr;
 
     switch (fi->type) { /* TODO: ... */
     case FORM_INPUT_TEXT:
 	t = "text";
 	if (fi->init_value->length > 0)
-	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, i2us(fi->init_value)->ptr)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, escape_value(i2us(fi->init_value))->ptr)->ptr);
 	break;
     case FORM_INPUT_PASSWORD:
 	t = "password";
 	if (fi->init_value->length > 0)
-	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, i2us(fi->init_value)->ptr)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, escape_value(i2us(fi->init_value))->ptr)->ptr);
 	break;
     case FORM_INPUT_CHECKBOX:
 	t = "checkbox";
@@ -230,14 +241,14 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	break;
     case FORM_TEXTAREA:
 	if (fi->init_value->length > 0)
-	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, i2us(fi->init_value)->ptr)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, escape_value(i2us(fi->init_value))->ptr)->ptr);
 	break;
     case FORM_INPUT_BUTTON:
 	t = "button"; break;
     case FORM_INPUT_FILE:
 	t = "file";
 	if (fi->init_value && fi->init_value->length > 0) /* TODO: Read Only */
-	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, i2us(fi->init_value)->ptr)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, escape_value(i2us(fi->init_value))->ptr)->ptr);
 	break;
     default:
 	t = ""; break;
@@ -276,12 +287,12 @@ script_buf2js(Buffer *buf, void *interp)
     int i;
     char *t, *c;
     Str cs;
-    static int ppc;
-    static int ppl;
 
     ret = js_eval2(interp, "document;");
     if (js_is_exception(ret)) {
 	js_eval(interp,
+		"var self = globalThis;"
+		""
 		"var document = new Document();"
 		"document.compatMode = \"CSS1Compat\";"
 		"document.documentElement = new HTMLElement(\"html\");"
@@ -289,26 +300,38 @@ script_buf2js(Buffer *buf, void *interp)
 		"document.children = document.documentElement.children;"
 		"document.head = new HTMLElement(\"head\");"
 		"document.body = new HTMLElement(\"body\");"
+		"document.documentElement.appendChild(document.head);"
+		"document.documentElement.appendChild(document.body);"
 		"document.referrer = \"\";"
 		""
 		"var screen = new Object();"
-		""
 		"var navigator = new Navigator();"
+		"var history = new History();"
+		"var performance = new Object();"
 		""
 		"var window = new Window();"
 		"window.document = document;"
 		"window.parent = window;"
 		"window.screen = screen;"
 		"window.navigator = navigator;"
-		""
-		"self = window;"
+		"window.history = history;"
+		"window.performance = performance;"
+		"window.Element = Element;"
 		""
 	        "document.createElement = function(tagname) {"
-		"  if (tagname.toLowerCase() === \"form\") {"
+		"  tagname = tagname.toLowerCase();"
+		"  if (tagname === \"form\") {"
 		"    return new HTMLFormElement();"
 		"  } else {"
 		"    return new HTMLElement(tagname);"
 		"  }"
+		"};"
+		""
+	        "document.createTextNode = function(text) {"
+		"  let element = new Element();"
+		"  element.innerText = text;"
+		"  element.textContent = text;"
+		"  return element;"
 		"};"
 		""
 		"function w3m_getElementById(element, id) {"
@@ -340,15 +363,40 @@ script_buf2js(Buffer *buf, void *interp)
 		"  }"
 		"  let element = new HTMLElement(\"span\");"
 		"  element.id = id;"
-		"  return document.documentElement.appendChild(element);"
+		"  element.value = \"\";"
+		"  return document.body.appendChild(element);"
 		"};"
 		""
-		"document.getElementsByTagName = function(tagname) {"
-		"  if (tagname.toLowerCase() === \"form\") {"
+		"function w3m_getElementsByTagName(element, name, array) {"
+		"  if (element.tagName.toLowerCase() === name) {"
+		"    array.push(element);"
+		"  }"
+		"  for (let i = 0; i < element.children.length; i++) {"
+		"    w3m_getElementsByName(element.children[i], name, array);"
+		"  }"
+		"}"
+		""
+		"document.getElementsByTagName = function(name) {"
+		"  name = name.toLowerCase();"
+		"  if (name === \"form\") {"
 		"    return document.forms;"
 		"  } else {"
-		"    /* XXX HTMLCollection */"
-		"    return new Array();"
+		"    let array = new HTMLCollection();"
+		"    for (let i = 0; i < document.forms.length; i++) {"
+		"      for (let j = 0; j < document.forms[i].elements.length; j++) {"
+		"        w3m_getElementsByTagName(document.forms[i].elements[j], name, array);"
+		"      }"
+		"    }"
+		"    for (let i = 0; i < document.children.length; i++) {"
+		"      w3m_getElementsByTagName(document.children[i], name, array);"
+		"    }"
+		"    if (array.length == 0) {"
+		"      let element = new HTMLElement(name);"
+		"      element.value = \"\";"
+		"      document.body.appendChild(element);"
+		"      array.push(element);"
+		"    }"
+		"    return array;"
 		"  }"
 		"};"
 		""
@@ -362,8 +410,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"}"
 		""
 		"document.getElementsByName = function(name) {"
-		"  /* XXX HTMLCollection */"
-		"  let array = new Array();"
+		"  let array = new HTMLCollection();"
 		"  for (let i = 0; i < document.forms.length; i++) {"
 		"    w3m_getElementsByName(document.forms[i], name, array);"
 		"  }"
@@ -373,23 +420,157 @@ script_buf2js(Buffer *buf, void *interp)
 		"  if (array.length == 0) {"
 		"    let element = new HTMLElement(\"span\");"
 		"    element.name = name;"
-		"    document.documentElement.appendChild(element);"
+		"    element.value = \"\";"
+		"    document.body.appendChild(element);"
 		"    array.push(element);"
 		"  }"
 		"  return array;"
+		"};"
+		""
+		"function w3m_getElementsByClassName(element, name, array) {"
+		"  if (element.className === name) {"
+		"    array.push(element);"
+		"  }"
+		"  for (let i = 0; i < element.children.length; i++) {"
+		"    w3m_getElementsByClassName(element.children[i], name, array);"
+		"  }"
+		"}"
+		""
+		"document.getElementsByClassName = function(name) {"
+		"  let array = new HTMLCollection();"
+		"  for (let i = 0; i < document.forms.length; i++) {"
+		"    w3m_getElementsByClassName(document.forms[i], name, array);"
+		"  }"
+		"  for (let i = 0; i < document.children.length; i++) {"
+		"    w3m_getElementsByClassName(document.children[i], name, array);"
+		"  }"
+		"  if (array.length == 0) {"
+		"    let element = new HTMLElement(\"span\");"
+		"    element.className = name;"
+		"    element.value = \"\";"
+		"    document.body.appendChild(element);"
+		"    array.push(element);"
+		"  }"
+		"  return array;"
+		"};"
+		""
+		"function w3m_parseSelector(sel) {"
+		"  let array = new Array(3);"
+		"  array[0] = array[1] = array[2] = null;"
+		"  let tmp = sel.match(/^[^,\\[\\] >]+/);"
+		"  if (tmp == null) {"
+		"    return array;"
+		"  }"
+		"  sel = tmp[0];"
+		"  tmp = sel.match(/^[^.#]+/); /* tag */"
+		"  if (tmp != null) {"
+		"    array[0] = tmp[0];"
+		"  }"
+		"  tmp = sel.match(/\\.[^.#]+/); /* class */"
+		"  if (tmp != null) {"
+		"    array[1] = tmp[0];"
+		"  }"
+		"  tmp = sel.match(/#[^.#]+/); /* id */"
+		"  if (array[2] != null) {"
+		"    array[2] = tmp[0];"
+		"  }"
+		"  return array;"
+		"}"
+		""
+		"document.querySelectorAll = function(sel) {"
+		"  let array = w3m_parseSelector(sel);"
+		"  if (array[0] != null) {"
+		"    return document.getElementsByTagName(array[0]);"
+		"  } else if (array[1] != null) {"
+		"    return document.getElementsByClassName(array[1].substring(1));"
+		"  } else {"
+		"    let elements = new NodeList();"
+		"    if (array[2] != null) {"
+		"      elements.push(document.getElementById(array[2].substring(1)));"
+		"    } else {"
+		"      elements.push(document.body.appendChild(new HTMLElement(\"span\")));"
+		"    }"
+		"    return elements;"
+		"  }"
+		"};"
+		""
+		"document.querySelector = function(sel) {"
+		"  let array = w3m_parseSelector(sel);"
+		"  let element;"
+		"  if (array[0] != null) {"
+		"    element = document.getElementsByTagName(array[0])[0];"
+		"  } else if (array[1] != null) {"
+		"    element = document.getElementsByClassName(array[1])[0];"
+		"  } else if (array[2] != null) {"
+		"    element = document.getElementById(array[2]);"
+		"  } else {"
+		"    element = document.body.appendChild(new HTMLElement(\"span\"));"
+		"    element.value = \"\";"
+		"  }"
+		"  return element;"
 		"};"
 		""
 		"class MutationObserver {"
 		"  constructor(callback) {"
 	        "    this.callback = callback;"
 		"  }"
-		"  observet(target, options) {"
+		"  observe(target, options) {"
 		"  }"
 		"  disconnect() {"
 		"  }"
 		"}"
 		""
-		"function w3m_innerhtmls_to_str_intern(element) {"
+		"class IntersectionObserver {"
+		"  constructor(callback) {"
+		"    this.callback = callback;"
+		"  }"
+		"  observe(target) {"
+		"  }"
+		"  disconnect() {"
+		"  }"
+		"}"
+		""
+		"function requestAnimationFrame(callback) {"
+		"  return null;"
+		"}"
+		"window.requestAnimationFrame = requestAnimationFrame;"
+		""
+		"function cancelAnimationFrame(callback) {"
+		"  return null;"
+		"}"
+		"window.cancelAnimationFrame = cancelAnimationFrame;"
+		""
+		"function setInterval(fn, tm) {"
+		"  if (typeof fn == \"string\") {"
+		"    eval(fn);"
+		"  } else {"
+		"    fn();"
+		"  }"
+		"}"
+		"window.setInterval = setInterval;"
+		""
+		"function setTimeout(fn, tm) {"
+		"  if (typeof fn == \"string\") {"
+		"    eval(fn);"
+		"  } else {"
+		"    fn();"
+		"  }"
+		"}"
+		"window.setTimeout = setTimeout;"
+		""
+		"function clearTimeout(id) { ; }"
+		"window.clearTimeout = clearTimeout;"
+		""
+		"performance.now = function() {"
+		"  /* performance.now() should return DOMHighResTimeStamp */"
+		"  return Date.now();"
+		"};"
+		""
+		"function Image() {"
+		"  return new HTMLImageElement();"
+		"}"
+		""
+		"function w3m_innerHTMLsToStrIntern(element) {"
 		"  let str = \"\";"
 		"  if (element.innerHTML != undefined) {"
 		"    if (element.name != undefined) {"
@@ -404,41 +585,28 @@ script_buf2js(Buffer *buf, void *interp)
 		"    element.innerHTML = undefined;"
 		"  }"
 		"  for (let i = 0; i < element.children.length; i++) {"
-		"    str += w3m_innerhtmls_to_str_intern(element.children[i]);"
+		"    str += w3m_innerHTMLsToStrIntern(element.children[i]);"
 		"  }"
 		"  return str;"
 		"}"
 		""
-		"function w3m_innerhtmls_to_str() {"
+		"function w3m_innerHTMLsToStr() {"
 		"  let str = \"\";"
 		"  for (let i = 0; i < document.children.length; i++) {"
-		"    str += w3m_innerhtmls_to_str_intern(document.children[i]);"
+		"    str += w3m_innerHTMLsToStrIntern(document.children[i]);"
 		"  }"
 		"  return str;"
 		"}"
-		""
-		"function setInterval(fn, tm) { fn(); }"
-		""
-		"function setTimeout(fn, tm) { fn(); }"
 		""
 		"/* facebook.com */"
 		"function requireLazy(a, fn) { fn(); }"
 		"function onloadRegister_DEPRECATED(fn) { fn(); }"
 		"function useragentcm() { ; }");
-
-	js_eval(interp, "var history = new History();");
     }
     js_free(interp, ret);
 
-    if (ppc == 0) {
-	if (!get_pixel_per_cell(&ppc, &ppl)) {
-	    ppc = 8;
-	    ppl = 16;
-	}
-    }
-
-    js_eval(interp, Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;", buf->COLS * ppc)->ptr);
-    js_eval(interp, Sprintf("screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;", buf->LINES * ppl)->ptr);
+    js_eval(interp, Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;", buf->COLS * term_ppc)->ptr);
+    js_eval(interp, Sprintf("screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;", buf->LINES * term_ppl)->ptr);
     js_eval(interp, "window.scrollX = window.scrollY = document.body.scrollLeft = document.body.scrollTop = document.documentElement.scrollLeft = document.documentElement.scrollTop = 0;");
 
     js_eval(interp, Sprintf("var location = new Location(\"%s\");",
@@ -478,7 +646,7 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
     /* XXX HTMLCollection */
-    js_eval(interp, "document.forms = new Array();");
+    js_eval(interp, "document.forms = new HTMLCollection();");
 
     /* For document.children.length in script.c */
     if (buf->formlist != NULL) {
@@ -598,7 +766,7 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
     str = js_get_str(interp, val);
     if (str != NULL) {
 	str = u2is(str);
-	if (Strcmp(str, fi->value) != 0) {
+	if (Strcmp(str, escape_value(fi->value)) != 0) {
 	    fi->value = str;
 	    changed = 1;
 	}
@@ -967,7 +1135,7 @@ script_js2buf(Buffer *buf, void *interp)
 	}
     }
 
-    value = js_eval2(interp, "w3m_innerhtmls_to_str();");
+    value = js_eval2(interp, "w3m_innerHTMLsToStr();");
     Str str = js_get_str(interp, value);
     if (str != NULL && *str->ptr != '\0') {
 	set_delayed_message(u2is(str)->ptr);
@@ -981,6 +1149,34 @@ script_js2buf(Buffer *buf, void *interp)
     value = js_eval2(interp, "document;");
     if (js_is_object(value)) {
 	DocumentState *state = js_get_state(value, DocumentClassID);
+
+	if (state->open) {
+	    Buffer *new_buf = nullBuffer();
+	    if (new_buf != NULL) {
+		/* pushBuffer() in main.c */
+		Buffer *b;
+
+#ifdef USE_IMAGE
+		deleteImage(Currentbuf);
+#endif
+		if (clear_buffer)
+		    tmpClearBuffer(Currentbuf);
+		if (Firstbuf == Currentbuf) {
+		    new_buf->nextBuffer = Firstbuf;
+		    Firstbuf = Currentbuf = new_buf;
+		}
+		else if ((b = prevBuffer(Firstbuf, Currentbuf)) != NULL) {
+		    b->nextBuffer = new_buf;
+		    new_buf->nextBuffer = Currentbuf;
+		    Currentbuf = new_buf;
+		}
+#ifdef USE_BUFINFO
+		saveBufferInfo();
+#endif
+	    }
+
+	    state->open = 0;
+	}
 
 	if (state->cookie_changed) {
 #ifdef USE_COOKIE
@@ -1003,9 +1199,15 @@ static void
 onload(void *interp)
 {
     js_eval(interp,
+	    "for (let i = 0; i < w3m_eventListeners.length; i++) {"
+	    "  w3m_eventListeners[i].callback(w3m_eventListeners[i]);"
+	    "}"
+	    "w3m_eventListeners = new Array();"
+	    ""
 	    "function w3m_onload(element) {"
 	    "  if (element.onload != undefined) {"
 	    "    element.onload();"
+	    "    element.onload = undefined;"
 	    "  }"
 	    "  for (let i = 0; i < element.children.length; i++) {"
 	    "    w3m_onload(element.children[i]);"
@@ -1018,10 +1220,12 @@ onload(void *interp)
 	    "for (let i = 0; i < document.children.length; i++) {"
 	    "  w3m_onload(document.children[i]);"
 	    "}"
+	    ""
 	    "w3m_onload(document.body);"
 	    ""
 	    "if (window.onload != undefined) {"
-	    "  window.onload(); window.onload = undefined;"
+	    "  window.onload();"
+	    "  window.onload = undefined;"
 	    "}");
 }
 
