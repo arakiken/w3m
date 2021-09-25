@@ -1800,9 +1800,13 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 		return NULL;
 	    if (!Currentbuf)
 		return NULL;
-	    script_eval(Currentbuf, "JavaScript", pu.file, NULL);
+	    Str output = NULL;
+	    script_eval(Currentbuf, "JavaScript", pu.file, 1, &output);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
+	    if (output) {
+		process_html_str(Currentbuf, output->ptr);
+	    }
 	    displayBuffer(Currentbuf, B_FORCE_REDRAW);
 	    return NO_BUFFER;
 #endif
@@ -4209,89 +4213,229 @@ feed_textarea(char *str)
 }
 
 #ifdef USE_SCRIPT
+static Str
+load_script_src(char *url, ParsedURL *baseURL)
+{
+    FILE *f;
+    char *file;
+    pid_t pid;
+    struct stat st;
+    int wait_st;
+    Str str;
+
+    file = tmpfname(TMPF_DFL, ".js")->ptr;
+
+    if ((pid = fork()) == 0) {
+	Buffer *b;
+	ParsedURL u;
+#ifdef SCRIPT_DEBUG
+	int err = 0;
+#endif
+
+	setup_child(FALSE, 0, -1);
+	url = remove_space(url);
+#if 0 /*def USE_M17N*/
+	/* XXX */
+	parseURL2(wc_conv(url, InnerCharset, cur_document_charset), &u,
+		  baseURL ? baseURL : cur_baseURL);
+#else
+	parseURL2(url, &u, baseURL ? baseURL : cur_baseURL);
+#endif
+
+#if 0
+	if (baseURL) {
+	    FILE *fp = fopen("w3mlog.txt", "a");
+	    fprintf(fp, "Loading %s (%s + %s)\n",
+		    parsedURL2Str(&u)->ptr, parsedURL2Str(baseURL)->ptr, url);
+	    fclose(fp);
+	}
+#endif
+
+#if 1
+	UseContentCharset = TRUE;
+	WcOption.auto_detect = WC_OPT_DETECT_ON;
+	/*
+	 * http://www9.plala.or.jp/oyoyon/html/ (SHIFT_JIS)
+	 * -> ../style/main.js (SHIFT_JIS)
+	 */
+	if (CurrentTab && Currentbuf) {
+	    DocumentCharset = Currentbuf->document_charset;
+	}
+#endif
+	AutoUncompress = TRUE;
+	b = loadGeneralFile(parsedURL2Str(&u)->ptr, cur_baseURL, NULL, RG_SCRIPT, NULL);
+	if (b) {
+	    if (b->real_type) {
+		f = fopen(file, "w");
+		if (f) {
+#if 1
+		    /* Save as UTF-8 format */
+		    DisplayCharset = WC_CES_UTF_8;
+#endif
+		    saveBuffer(b, f, TRUE);
+		    fclose(f);
+		} else {
+		    err = 1;
+		}
+	    } else {
+		err = 2;
+	    }
+	    discardBuffer(b);
+	} else {
+	    err = 3;
+	}
+
+#ifdef SCRIPT_DEBUG
+	if (err) {
+	    FILE *fp = fopen("scriptlog.txt", "a");
+	    fprintf(fp, "<Can't load script file %s (tmpfile %s) (err %d) %p>\n",
+		    parsedURL2Str(&u)->ptr, file, err, baseURL ? baseURL : cur_baseURL);
+	    if (err == 1) {
+		fprintf(fp, "  real_type: %s\n", b->real_type);
+	    }
+	    fclose(fp);
+	}
+#endif
+	exit(0);
+    } else if (pid < 0) {
+	return NULL;
+    }
+
+#ifdef HAVE_WAITPID
+    waitpid(pid, &wait_st, 0);
+#else
+    /* AutoUncompress = TRUE can cause failure. */
+    wait(&wait_st);
+#endif
+    if (stat(file, &st))
+	return NULL;
+
+    f = fopen(file, "r");
+    str = Strnew();
+    if (f) {
+	char buf[256];
+	int n;
+	while (n = fread(buf, sizeof(char), 256, f)) {
+	    Strcat_charp_n(str, buf, n);
+	}
+	fclose(f);
+    }
+    unlink(file);
+
+    return str;
+}
+
 void
 process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 {
-    char *p = "JavaScript", *q, *t;
-    struct stat st;
-    int wait_st;
+    Script *script;
+    char *p, *q, *t;
 
-    if (frame_source)
+    if (frame_source || !use_script)
 	return;
 
-    parsedtag_get_value(tag, ATTR_LANGUAGE, &p);
-    h_env->cur_script_lang = p;
-    if (h_env->cur_script_str == NULL) {
-	h_env->cur_script_str = newGeneralList();
+    if (h_env->scripts == NULL) {
+	h_env->scripts = newGeneralList();
     }
-    pushValue(h_env->cur_script_str, Strnew());
-    t = NULL;
-    if (parsedtag_get_value(tag, ATTR_FRAMENAME, &t)) {
-	h_env->script_target = t;
-    }
-    q = NULL;
+
+    script = GC_malloc(sizeof(Script));
+    memset(script, 0, sizeof(Script));
+    pushValue(h_env->scripts, script);
+
     if (parsedtag_get_value(tag, ATTR_SRC, &q) &&
 	/* src="" in http://alphasis.info/2011/04/javascript-form-check-required-input/ */
 	*q != '\0') {
-	FILE *f;
-	char *file;
-	pid_t pid;
-
-	file = tmpfname(TMPF_DFL, ".js")->ptr;
-	if ((pid = fork()) == 0) {
-	    Buffer *b;
-	    ParsedURL u;
-	    char origAutoUncompress;
-
-	    setup_child(FALSE, 0, -1);
-	    q = remove_space(q);
-#if 0 /*def USE_M17N*/
-	    /* XXX */
-	    parseURL2(wc_conv(q, InnerCharset, cur_document_charset), &u, cur_baseURL);
-	    UseContentCharset = TRUE;
-	    UseAutoDetect = TRUE;
-#else
-	    parseURL2(q, &u, cur_baseURL);
-#endif
-
-	    origAutoUncompress = AutoUncompress;
-	    AutoUncompress = TRUE;
-	    b = loadGeneralFile(parsedURL2Str(&u)->ptr, cur_baseURL, NULL, RG_SCRIPT, NULL);
-	    AutoUncompress = origAutoUncompress;
-	    if (b) {
-		if (b->real_type) {
-		    f = fopen(file, "w");
-		    if (f) {
-			saveBuffer(b, f, TRUE);
-			fclose(f);
-		    }
-		}
-		discardBuffer(b);
-	    }
-	    exit(0);
-	} else if (pid < 0) {
-	    return;
-	}
-
-#ifdef HAVE_WAITPID
-	waitpid(pid, &wait_st, 0);
-#else
-	wait(&wait_st);
-#endif
-	if (stat(file, &st))
-	    return;
-
-	f = fopen(file, "r");
-	if (f) {
-	    char buf[256];
-	    int n;
-	    while (n = fread(buf, sizeof(char), 256, f)) {
-		Strcat_charp_n(h_env->cur_script_str->last->ptr, buf, n);
-	    }
-	    fclose(f);
-	}
-	unlink(file);
+	script->src = q;
     }
+
+    if (parsedtag_get_value(tag, ATTR_TYPE, &p)) {
+	if (strncasecmp(p, "text/", 5) == 0) {
+	    p += 5;
+	}
+    } else if (!parsedtag_get_value(tag, ATTR_LANGUAGE, &p)) {
+	p = "JavaScript";
+    }
+    script->lang = p;
+
+    if (parsedtag_get_value(tag, ATTR_FRAMENAME, &t)) {
+	script->target = t;
+    }
+}
+
+static char *
+get_script_str(Script *script, ParsedURL *baseURL)
+{
+    if (script->src != NULL) {
+	Str str = load_script_src(script->src, baseURL);
+	if (str != NULL) {
+	    if (script->str != NULL) {
+		Strcat(script->str, str);
+	    } else {
+		script->str = str;
+	    }
+	}
+	script->src = NULL;
+    }
+
+    if (script->str != NULL) {
+	return script->str->ptr;
+    } else {
+	return NULL;
+    }
+}
+
+static Str
+eval_script_intern(Buffer *buf)
+{
+    GeneralList *scripts = buf->scripts;
+    Str ret = NULL;
+    ListItem *l;
+    int buf2js = 1;
+
+    for (l = scripts->first; l != NULL; l = l->next) {
+	Script *script = l->ptr;
+	char *p;
+	Str tmp;
+	char *orig_target;
+
+	p = get_script_str(script,
+			   buf->currentURL.scheme == SCM_UNKNOWN ? NULL : &buf->currentURL);
+	if (p == NULL) {
+	    continue;
+	}
+
+	while (IS_SPACE(*p)) p++;
+	if (! strncmp(p, "<!--", 4))
+	    while (!IS_ENDL(*p)) p++;
+	if (script->target) {
+	    orig_target = buf->script_target;
+	    buf->script_target = script->target;
+	}
+	script_eval(buf, script->lang, p, buf2js, &tmp);
+	buf2js = 0;
+	if (script->target) {
+	    buf->script_target = orig_target;
+	}
+
+	if (buf->location != NULL) {
+	    Str tmp2 = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
+			       html_quote(buf->location));
+	    if (tmp == NULL) {
+		tmp = tmp2;
+	    } else {
+		Strcat(tmp, tmp2);
+	    }
+	}
+	if (tmp != NULL) {
+	    if (ret == NULL) {
+		ret = tmp;
+	    } else {
+		Strcat(ret, tmp);
+	    }
+	}
+    }
+
+    return ret;
 }
 
 /* for table.c */
@@ -4300,115 +4444,68 @@ process_n_script(struct html_feed_environ *h_env)
 {
     Str ret = NULL;
 
-    if (! use_script)
-	return NULL;
-    if (h_env != NULL &&
-	h_env->cur_script_str != NULL) {
-	ListItem *l;
-	for (l = h_env->cur_script_str->first; l != NULL; l = l->next) {
-	    Str script = l->ptr;
-	    if (script->length) {
-		char *p;
-		Str tmp;
-		Buffer *buf;
-		buf = newBuffer(INIT_BUFFER_WIDTH);
-		p = script->ptr;
-		while (IS_SPACE(*p)) p++;
-		if (! strncmp(p, "<!--", 4))
-		    while (!IS_ENDL(*p)) p++;
-		buf->script_interp = h_env->script_interp;
-		buf->script_lang = h_env->script_lang;
-		buf->script_target = h_env->script_target;
-		buf->currentURL = *cur_baseURL;
-		script_eval(buf, h_env->cur_script_lang, p, &tmp);
-		h_env->script_interp = buf->script_interp;
-		h_env->script_lang = buf->script_lang;
-		h_env->script_target = buf->script_target;
-		if (buf->location) {
-		    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
-				  html_quote(buf->location));
-		}
-		if (tmp != NULL) {
-		    if (ret == NULL) {
-			ret = tmp;
-		    } else {
-			Strcat(ret, tmp);
-		    }
-		}
-	    }
-	}
+    if (h_env != NULL && h_env->scripts != NULL) {
+	Buffer *buf = newBuffer(INIT_BUFFER_WIDTH);
+	buf->scripts = h_env->scripts;
+	ret = eval_script_intern(buf);
+	h_env->scripts = NULL;
     }
-    h_env->cur_script_str = NULL;
     return ret;
 }
 
 void
 feed_script(char *str, struct html_feed_environ *h_env)
 {
-    if (str != NULL && h_env != NULL && h_env->cur_script_str != NULL) {
-	Strcat(h_env->cur_script_str->last->ptr,
+    if (str != NULL && h_env != NULL && h_env->scripts != NULL) {
+	Script *script = h_env->scripts->last->ptr;
+
+	if (script->str == NULL) {
+	    script->str = Strnew();
+	}
+	Strcat(script->str,
 	       wc_Str_conv(Strnew_charp(str), InnerCharset, WC_CES_UTF_8));
+    }
+}
+
+void
+process_html_str(Buffer *buf, char *html_str)
+{
+    /* See loadHTMLstream() */
+    struct html_feed_environ htmlenv1;
+    struct readbuffer obuf;
+    struct environment envs[MAX_ENV_LEVEL];
+
+    if (buf->lastLine) {
+	buf->currentLine = buf->lastLine;
+    }
+
+    init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, buf->width, 0);
+    htmlenv1.buf = newTextLineList();
+    HTMLlineproc0(html_str, &htmlenv1, TRUE);
+    if (obuf.status != R_ST_NORMAL) {
+	HTMLlineproc0("\n", &htmlenv1, TRUE);
+	obuf.status = R_ST_NORMAL;
+    }
+    completeHTMLstream(&htmlenv1, &obuf);
+    flushline(&htmlenv1, &obuf, 0, 2, htmlenv1.limit);
+    HTMLlineproc2(buf, htmlenv1.buf);
+
+    /* See loadHTMLBuffer() etc */
+    if (buf->topLine == NULL) {
+	buf->topLine = buf->firstLine;
+	buf->lastLine = buf->currentLine;
+	buf->currentLine = buf->firstLine;
     }
 }
 
 static void
 eval_script(Buffer *buf)
 {
-    if (use_script && buf->script_str) {
-	Str ret = NULL;
-	ListItem *l;
-	for (l = buf->script_str->first; l != NULL; l = l->next) {
-	    Str script = l->ptr;
-	    if (script->length) {
-		char *p;
-		Str tmp;
-		p = script->ptr;
-		while (IS_SPACE(*p)) p++;
-		if (! strncmp(p, "<!--", 4))
-		    while (!IS_ENDL(*p)) p++;
-		script_eval(buf, buf->script_lang, p, &tmp);
-		if (buf->location) {
-		    tmp = Sprintf("script: <meta http-equiv=\"refresh\" content=\"url=%s; 0\">",
-				  html_quote(buf->location));
-		}
-		if (tmp != NULL) {
-		    if (ret == NULL) {
-			ret = tmp;
-		    } else {
-			Strcat(ret, tmp);
-		    }
-		}
-	    }
-	}
-	buf->script_str = NULL;
-
+    if (buf->scripts != NULL) {
+	Str ret = eval_script_intern(buf);
+	buf->scripts = NULL;
 	if (ret) {
-	    /* See loadHTMLstream() */
-	    struct html_feed_environ htmlenv1;
-	    struct readbuffer obuf;
-	    struct environment envs[MAX_ENV_LEVEL];
-
-	    if (buf->lastLine) {
-		buf->currentLine = buf->lastLine;
-	    }
-
-	    init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, buf->width, 0);
-	    htmlenv1.buf = newTextLineList();
-	    HTMLlineproc0(ret->ptr, &htmlenv1, TRUE);
-	    if (obuf.status != R_ST_NORMAL) {
-		HTMLlineproc0("\n", &htmlenv1, TRUE);
-		obuf.status = R_ST_NORMAL;
-	    }
-	    completeHTMLstream(&htmlenv1, &obuf);
-	    flushline(&htmlenv1, &obuf, 0, 2, htmlenv1.limit);
-	    HTMLlineproc2(buf, htmlenv1.buf);
-
-	    /* See loadHTMLBuffer() etc */
-	    if (buf->topLine == NULL) {
-		buf->topLine = buf->firstLine;
-		buf->lastLine = buf->currentLine;
-		buf->currentLine = buf->firstLine;
-	    }
+	    process_html_str(buf, ret->ptr);
 	}
     }
 }
@@ -7652,11 +7749,7 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
     init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, newBuf->width, 0);
 
 #ifdef USE_SCRIPT
-    htmlenv1.cur_script_str = NULL;
-    htmlenv1.cur_script_lang = NULL;
-    htmlenv1.script_interp = NULL;
-    htmlenv1.script_lang = NULL;
-    htmlenv1.script_target = NULL;
+    htmlenv1.scripts = NULL;
 #endif
     if (w3m_halfdump)
 	htmlenv1.f = stdout;
@@ -7766,10 +7859,7 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 	newBuf->document_charset = charset;
 #endif
 #ifdef USE_SCRIPT
-    newBuf->script_interp = htmlenv1.script_interp;
-    newBuf->script_lang = htmlenv1.cur_script_lang;
-    newBuf->script_target = htmlenv1.script_target;
-    newBuf->script_str = htmlenv1.cur_script_str;
+    newBuf->scripts = htmlenv1.scripts;
 #endif
 #ifdef USE_IMAGE
     newBuf->image_flag = image_flag;

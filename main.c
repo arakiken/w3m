@@ -1527,7 +1527,7 @@ saveBufferInfo()
 }
 #endif
 
-static void
+void
 pushBuffer(Buffer *buf)
 {
     Buffer *b;
@@ -3457,15 +3457,20 @@ followForm(FormList *fl)
 }
 
 static int
-script_eval_and_load(Buffer *buf, char *script, Str *output)
+script_eval_and_load(Buffer *buf, char *script)
 {
-    int ret = script_eval(buf, "javascript", script, output);
+    Str output = NULL;
+    int ret = script_eval(buf, "javascript", script, 1, &output);
 
     if (buf->location) {
 	Buffer *new_buf = loadGeneralFile(buf->location, baseURL(buf), NO_REFERER, 0, NULL);
 	if (new_buf != NULL) {
 	    pushBuffer(new_buf);
 	}
+    }
+
+    if (output) {
+	process_html_str(buf, output->ptr);
     }
 
     return ret;
@@ -3511,7 +3516,7 @@ _followForm(int submit, FormList *fl)
 #ifdef USE_JAVASCRIPT
 	if (fi->onkeyup || fi->onchange) {
 	    char *script = fi->onkeyup ? fi->onkeyup->ptr : fi->onchange->ptr;
-	    script_eval_and_load(Currentbuf, script, NULL);
+	    script_eval_and_load(Currentbuf, script);
 	    break;
 	}
 #endif
@@ -3562,7 +3567,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange->ptr, NULL);
+	    script_eval_and_load(Currentbuf, fi->onchange->ptr);
 	    break;
 	}
 #endif
@@ -3600,7 +3605,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange->ptr, NULL);
+	    script_eval_and_load(Currentbuf, fi->onchange->ptr);
 	    break;
 	}
 #endif
@@ -3618,7 +3623,7 @@ _followForm(int submit, FormList *fl)
 	    if (strncmp(script, "return", 6) == 0) { script += 6; }
 	    while (*script == ' ' || *script == '\t') { script++; }
 
-	    if (!script_eval(Currentbuf, "javascript", script, NULL)) {
+	    if (!script_eval(Currentbuf, "javascript", script, 1, NULL)) {
 		break;
 	    }
 	}
@@ -3628,7 +3633,7 @@ _followForm(int submit, FormList *fl)
       do_submit:
 #ifdef USE_JAVASCRIPT
 	if (fi->onclick) {
-	    script_eval_and_load(Currentbuf, fi->onclick->ptr, NULL);
+	    script_eval_and_load(Currentbuf, fi->onclick->ptr);
 	    break;
 	}
 #endif
@@ -3693,7 +3698,7 @@ _followForm(int submit, FormList *fl)
 	    if (strncmp(script, "return", 6) == 0) { script += 6; }
 	    while (*script == ' ' || *script == '\t') { script++; }
 
-	    if (!script_eval(Currentbuf, "javascript", script, NULL)) {
+	    if (!script_eval(Currentbuf, "javascript", script, 1, NULL)) {
 		break;
 	    }
 	}

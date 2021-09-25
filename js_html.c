@@ -13,7 +13,7 @@
 #define EVAL_FLAG JS_EVAL_FLAG_STRICT
 #endif
 
-JSClassID WindowClassID;
+JSClassID WindowClassID = 1; /* JS_CLASS_OBJECT */
 JSClassID LocationClassID;
 JSClassID DocumentClassID;
 JSClassID NavigatorClassID;
@@ -30,6 +30,41 @@ static JSRuntime *rt;
 
 int term_ppc;
 int term_ppl;
+
+#ifdef SCRIPT_DEBUG
+static JSValue
+backtrace(JSContext *ctx, char *script, JSValue eval_ret)
+{
+#if 0
+    FILE *fp = fopen(Sprintf("w3mlog%p.txt", ctx)->ptr, "a");
+    fprintf(fp, "%s\n", script);
+    fclose(fp);
+#endif
+
+    if (JS_IsException(eval_ret) &&
+	/* see script_buf2js() in script.c */
+	strcmp(script, "document;") != 0) {
+	JSValue err = JS_GetException(ctx);
+	const char *err_str = JS_ToCString(ctx, err);
+
+	JSValue stack = JS_GetPropertyStr(ctx, err, "stack");
+	const char *stack_str = JS_ToCString(ctx, stack);
+
+	FILE *fp = fopen("scriptlog.txt", "a");
+	fprintf(fp, "<%s>\n%s\n%s\n", err_str, stack_str, script);
+	fclose(fp);
+
+	JS_FreeCString(ctx, err_str);
+	JS_FreeCString(ctx, stack_str);
+	JS_FreeValue(ctx, err);
+	JS_FreeValue(ctx, stack);
+    }
+
+    return eval_ret;
+}
+#else
+#define backtrace(ctx, script, eval_ret) (eval_ret)
+#endif
 
 static Str
 get_str(JSContext *ctx, JSValue value)
@@ -101,36 +136,6 @@ dispatch_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     return JS_UNDEFINED;
 }
 
-static void
-window_final(JSRuntime *rt, JSValue val) {
-    GC_FREE(JS_GetOpaque(val, WindowClassID));
-}
-
-static const JSClassDef WindowClass = {
-    "Window", window_final, NULL /* gc_mark */, NULL /* call */, NULL
-};
-
-static JSValue
-window_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    JSValue obj;
-    WindowState *state;
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
-    obj = JS_NewObjectClass(ctx, WindowClassID);
-
-    state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
-    state->win = newGeneralList();
-    state->close = FALSE;
-
-    JS_SetOpaque(obj, state);
-
-    return obj;
-}
-
 static JSValue
 window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
@@ -183,7 +188,7 @@ window_alert(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     const char *str;
     size_t len;
 
-    if (argc != 1) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -203,7 +208,7 @@ window_confirm(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     const char *str;
     char *ans;
 
-    if (argc != 1) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -226,7 +231,7 @@ window_get_computed_style(JSContext *ctx, JSValueConst jsThis, int argc, JSValue
 {
     JSValue style;
 
-    if (argc != 1 && argc != 2) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -261,20 +266,23 @@ window_match_media(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     return result;
 }
 
-static const JSCFunctionListEntry WindowFuncs[] = {
-    JS_CFUNC_DEF("open", 1, window_open),
-    JS_CFUNC_DEF("close", 1, window_close),
-    JS_CFUNC_DEF("alert", 1, window_alert),
-    JS_CFUNC_DEF("confirm", 1, window_confirm),
-    JS_CFUNC_DEF("getComputedStyle", 1, window_get_computed_style),
-    JS_CFUNC_DEF("scroll", 1, window_scroll),
-    JS_CFUNC_DEF("scrollTo", 1, window_scroll),
-    JS_CFUNC_DEF("scrollBy", 1, window_scroll),
-    JS_CFUNC_DEF("getSelection", 1, window_get_selection),
-    JS_CFUNC_DEF("matchMedia", 1, window_match_media),
-    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
-    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
-    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
+static struct {
+    char *name;
+    JSCFunction *func;
+} WindowFuncs[] = {
+    { "open", window_open } ,
+    { "close", window_close },
+    { "alert", window_alert },
+    { "confirm", window_confirm },
+    { "getComputedStyle", window_get_computed_style },
+    { "scroll", window_scroll },
+    { "scrollTo", window_scroll },
+    { "scrollBy", window_scroll },
+    { "getSelection", window_get_selection },
+    { "matchMedia", window_match_media },
+    { "addEventListener", add_event_listener },
+    { "removeEventListener", remove_event_listener },
+    { "dispatchEvent", dispatch_event },
 };
 
 static void
@@ -315,7 +323,7 @@ location_replace(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str str;
 
-    if (argc != 1 || (str = get_str(ctx, argv[0])) == NULL) {
+    if (argc < 1 || (str = get_str(ctx, argv[0])) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -330,9 +338,6 @@ static JSValue
 location_reload(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
-
-    if (argc != 0)
-	return JS_EXCEPTION;
 
     state->refresh |= JS_LOC_REFRESH;
 
@@ -652,31 +657,37 @@ static void
 set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
     JSValue style;
-    JSValue cw;
-    JSValue array;
+    JSValue children;
 
-    style = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, style, "fontSize",
-		      JS_NewString(ctx, Sprintf("%dpx", term_ppl)->ptr));
-    JS_SetPropertyStr(ctx, obj, "style", style);
-
-    cw = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, cw, "document", JS_NewObjectClass(ctx, DocumentClassID));
-    JS_SetPropertyStr(ctx, obj, "contentWindow", cw);
-
-    array = JS_Eval(ctx, "new HTMLCollection();", 21, "<input>", EVAL_FLAG);
-    JS_SetPropertyStr(ctx, obj, "children", array);
-    JS_SetPropertyStr(ctx, obj, "childNodes", JS_DupValue(ctx, array)); /* XXX NodeList */
-
+    /* Node */
+    children = JS_Eval(ctx, "new HTMLCollection();", 21, "<input>", EVAL_FLAG);
+    JS_SetPropertyStr(ctx, obj, "childNodes", children); /* XXX NodeList */
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "nextSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
     JS_SetPropertyStr(ctx, obj, "nodeValue", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "innerText", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, obj, "textContent", JS_NewString(ctx, ""));
+    JS_SetPropertyStr(ctx, obj, "nodeName", JS_DupValue(ctx, tagname));
+
+    /* Element */
+    JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
+    JS_SetPropertyStr(ctx, obj, "children", JS_DupValue(ctx, children));
+    JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
+
+    /* HTMLElement */
+    style = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, style, "fontSize",
+		      JS_NewString(ctx, Sprintf("%dpx", term_ppl)->ptr));
+    JS_SetPropertyStr(ctx, style, "zoom", JS_NewString(ctx, "normal"));
+    JS_SetPropertyStr(ctx, obj, "style", style);
+
+    JS_SetPropertyStr(ctx, obj, "offsetWidth", JS_NewInt32(ctx, term_ppc));
+    JS_SetPropertyStr(ctx, obj, "offsetHeight", JS_NewInt32(ctx, term_ppl));
+    JS_SetPropertyStr(ctx, obj, "offsetLeft", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "offsetTop", JS_NewInt32(ctx, 0));
+
+    /* XXX HTMLSelectElement */
+    JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
 }
 
 static JSValue
@@ -685,10 +696,6 @@ html_form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JSValue obj;
     JSValue *tagnames;
     HTMLFormElementState *state;
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
 
     tagnames = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(tagnames[TN_FORM])) {
@@ -736,7 +743,7 @@ html_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
 {
     JSValue obj;
 
-    if (argc != 1 || !JS_IsString(argv[0])) {
+    if (argc < 1 || !JS_IsString(argv[0])) {
 	return JS_EXCEPTION;
     }
 
@@ -755,10 +762,6 @@ html_image_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCon
 {
     JSValue obj;
     JSValue *tagnames;
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
 
     tagnames = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(tagnames[TN_IMG])) {
@@ -781,7 +784,7 @@ svg_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
     JSValue obj;
 
     /* XXX */
-    if (argc != 1 || !JS_IsString(argv[0])) {
+    if (argc < 1 || !JS_IsString(argv[0])) {
 	return JS_EXCEPTION;
     }
 
@@ -800,7 +803,7 @@ element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
 
-    if (argc != 1 || !JS_IsString(argv[0])) {
+    if (argc < 1 || !JS_IsString(argv[0])) {
 	return JS_EXCEPTION;
     }
 
@@ -818,7 +821,7 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
     JSValue vret;
     int32_t iret;
 
-    if (argc != 1 /* appendChild */ && argc != 2 /* insertBefore */) {
+    if (argc < 1  /*  appendChild: 1, insertBefore: 2*/) {
 	return JS_EXCEPTION;
     }
 
@@ -872,11 +875,25 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 static JSValue
 element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 1) {
+    JSValue children, prop, argv2[2];
+
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
-    /* XXX Not implemented. */
+    children = JS_GetPropertyStr(ctx, jsThis, "children");
+    prop = JS_GetPropertyStr(ctx, children, "indexOf");
+    argv2[0] = JS_Call(ctx, prop, children, 1, argv);
+    JS_FreeValue(ctx, prop);
+    argv2[1] = JS_NewInt32(ctx, 1);
+
+    prop = JS_GetPropertyStr(ctx, children, "splice");
+    JS_FreeValue(ctx, JS_Call(ctx, prop, children, 2, argv2));
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, argv2[0]);
+    JS_FreeValue(ctx, argv2[1]);
+
+    JS_FreeValue(ctx, children);
 
     return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
 }
@@ -884,7 +901,7 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 static JSValue
 element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 2) {
+    if (argc < 2) {
 	return JS_EXCEPTION;
     }
 
@@ -896,7 +913,7 @@ element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 static JSValue
 element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 2) {
+    if (argc < 2) {
 	return JS_EXCEPTION;
     }
 
@@ -912,7 +929,7 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 static JSValue
 element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 1) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -934,7 +951,7 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 static JSValue
 element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 2) {
+    if (argc < 2) {
 	return JS_EXCEPTION;
     }
 
@@ -946,7 +963,7 @@ element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 {
     JSValue ret = JS_FALSE;
 
-    if (argc != 1) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -968,15 +985,11 @@ element_get_bounding_client_rect(JSContext *ctx, JSValueConst jsThis, int argc, 
 {
     JSValue rect;
 
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
     rect = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, rect, "x", JS_NewFloat64(ctx, 0.0));
     JS_SetPropertyStr(ctx, rect, "y", JS_NewFloat64(ctx, 0.0));
-    JS_SetPropertyStr(ctx, rect, "width", JS_NewFloat64(ctx, 10.0));
-    JS_SetPropertyStr(ctx, rect, "height", JS_NewFloat64(ctx,10.0));
+    JS_SetPropertyStr(ctx, rect, "width", JS_NewFloat64(ctx, term_ppc));
+    JS_SetPropertyStr(ctx, rect, "height", JS_NewFloat64(ctx, term_ppl));
     JS_SetPropertyStr(ctx, rect, "left", JS_NewFloat64(ctx, 0.0));
     JS_SetPropertyStr(ctx, rect, "top", JS_NewFloat64(ctx, 0.0));
     JS_SetPropertyStr(ctx, rect, "right", JS_NewFloat64(ctx, 10.0));
@@ -989,12 +1002,8 @@ static JSValue
 element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
-    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
 static JSValue
@@ -1007,18 +1016,22 @@ element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 	"  null;"
 	"}";
 
-    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
 static JSValue
 element_last_child_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] = "if (this.children.length > 0) {"
-	            "  this.children[this.children.length - 1];"
-                    "} else {"
-	            "  null;"
-		    "}";
-    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+    char script[] =
+	"if (this.children.length > 0) {"
+	"  this.children[this.children.length - 1];"
+	"} else {"
+	"  null;"
+	"}";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
 static JSValue
@@ -1028,9 +1041,15 @@ element_owner_document_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
+element_content_window_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_Eval(ctx, "window;", 7, "<input>", EVAL_FLAG);
+}
+
+static JSValue
 element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    if (argc != 1) {
+    if (argc < 1) {
 	return JS_EXCEPTION;
     }
 
@@ -1042,29 +1061,176 @@ element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 static JSValue
 element_attributes_get(JSContext *ctx, JSValueConst jsThis)
 {
-    return JS_EvalThis(ctx, jsThis, "w3m_elementAttributes(this);", 28, "<input>", EVAL_FLAG);
+    char script[] = "w3m_elementAttributes(this);";
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_compare_document_position(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_NewInt32(ctx, 4); /* DOCUMENT_POSITION_FOLLOWING */
+}
+
+static JSValue
+element_closest(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    /* XXX */
+    return JS_GetPropertyStr(ctx, jsThis, "parentElement");
+}
+
+static JSValue
+element_offset_parent_get(JSContext *ctx, JSValueConst jsThis)
+{
+    /* XXX */
+    return JS_GetPropertyStr(ctx, jsThis, "parentElement");
+}
+
+static JSValue
+element_do_scroll(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_get_elements_by_tag_name(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *tag, *orig_tag;
+    char *script;
+
+    if (argc < 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    orig_tag = tag = JS_ToCString(ctx, argv[0]);
+    if (strcmp(tag, "*") == 0) {
+	tag = "span";
+    }
+    script = Sprintf("[ this.appendChild(new HTMLElement(\"%s\")) ];", tag)->ptr;
+    JS_FreeCString(ctx, orig_tag);
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_get_elements_by_class_name(JSContext *ctx, JSValueConst jsThis,
+				   int argc, JSValueConst *argv)
+{
+    char script[] = "[ this.appendChild(new HTMLElement(\"span\")) ];";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_DupValue(ctx, jsThis);
+}
+
+static JSValue
+element_text_content_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] =
+	"function w3m_getChildrenText(element) {"
+	"  text = \"\";"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    if (element.children[i].nodeName === \"#text\") {"
+	"      text += element.children[i].nodeValue;"
+	"    }"
+	"    text += w3m_getChildrenText(element.children[i]);"
+	"  }"
+	"  return text;"
+	"}"
+	"w3m_getChildrenText(this);";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    JSValue nodename = JS_NewStringLen(ctx, "#text", 5);
+    JSValue element = element_new(ctx, jsThis, 1, &nodename);
+    JSValue children = JS_Eval(ctx, "new HTMLCollection();", 21, "<input>", EVAL_FLAG);
+    JS_SetPropertyStr(ctx, jsThis, "children", children);
+    JS_SetPropertyStr(ctx, jsThis, "childNodes", JS_DupValue(ctx, children)); /* NodeList */
+
+    JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, val));
+    JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+
+    JS_FreeValue(ctx, nodename);
+    JS_FreeValue(ctx, element);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc < 2) {
+	return JS_EXCEPTION;
+    }
+
+    JSValue nodename = JS_NewStringLen(ctx, "#text", 5);
+    JSValue element = element_new(ctx, jsThis, 1, &nodename);
+
+    JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, argv[1]));
+    JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+
+    JS_FreeValue(ctx, nodename);
+    JS_FreeValue(ctx, element);
+
+    return JS_UNDEFINED;
 }
 
 static const JSCFunctionListEntry ElementFuncs[] = {
-    /* HTMLElement */
+    /* Node (see DocumentFuncs) */
+    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
     JS_CFUNC_DEF("insertBefore", 1, element_append_child), /* XXX */
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
     JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
+    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
+    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
+    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
+    JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
+    JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
+    JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
+
+    /* EventTarget */
+    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
+    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
+    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
+
+    /* Element */
+    JS_CGETSET_DEF("firstElementChild", element_first_child_get, NULL),
+    JS_CGETSET_DEF("lastElementChild", element_last_child_get, NULL),
+    JS_CFUNC_DEF("closest", 1, element_closest),
     JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
     JS_CFUNC_DEF("getAttribute", 1, element_get_attribute),
     JS_CFUNC_DEF("removeAttribute", 1, element_remove_attribute),
     JS_CFUNC_DEF("hasAttribute", 1, element_has_attribute),
-    JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
-    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
-    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
-    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
-    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
-    JS_CFUNC_DEF("matches", 1, element_matches),
-    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
-    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
-    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
     JS_CGETSET_DEF("attributes", element_attributes_get, NULL),
+    JS_CFUNC_DEF("matches", 1, element_matches),
+    JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
+    JS_CFUNC_DEF("getElementsByTagName", 1, element_get_elements_by_tag_name),
+    JS_CFUNC_DEF("getElementsByTagNameNS", 1, element_get_elements_by_tag_name),
+    JS_CFUNC_DEF("getElementsByClassName", 1, element_get_elements_by_class_name),
+    JS_CGETSET_DEF("innerHTML", element_text_content_get, element_text_content_set),
+    JS_CFUNC_DEF("insertAdjacentHTML", 1, element_insert_adjacent_html),
+
+    /* HTMLElement */
+    JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
+    JS_CGETSET_DEF("offsetParent", element_offset_parent_get, NULL),
+    JS_CGETSET_DEF("innerText", element_text_content_get, element_text_content_set),
+
+    /* XXX HTMLFrameElement only */
+    JS_CGETSET_DEF("contentDocument", element_owner_document_get, NULL),
+    JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
+
 
     /* HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
@@ -1085,10 +1251,6 @@ history_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
     HistoryState *state;
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
 
     obj = JS_NewObjectClass(ctx, HistoryClassID);
 
@@ -1126,7 +1288,7 @@ history_go(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     HistoryState *state = JS_GetOpaque(jsThis, HistoryClassID);
     int i;
 
-    if (argc != 1 || !JS_IsNumber(argv[0])) {
+    if (argc < 1 || !JS_IsNumber(argv[0])) {
 	return JS_EXCEPTION;
     }
 
@@ -1170,10 +1332,6 @@ navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
     NavigatorState *state;
-
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
 
     obj = JS_NewObjectClass(ctx, NavigatorClassID);
 
@@ -1294,10 +1452,7 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     JSValue obj;
     DocumentState *state;
 
-    if (argc != 0) {
-	return JS_EXCEPTION;
-    }
-
+    /* Set properties by script_buf2js() in script.c */
     obj = JS_NewObjectClass(ctx, DocumentClassID);
 
     state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
@@ -1403,50 +1558,111 @@ document_cookie_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     return JS_UNDEFINED;
 }
 
+static JSValue
+document_referrer_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char *url;
+
+    if (CurrentTab && Currentbuf && Currentbuf->nextBuffer) {
+	url = parsedURL2Str(&Currentbuf->nextBuffer->currentURL)->ptr;
+    } else {
+	url = "";
+    }
+
+    return JS_NewString(ctx, url);
+}
+
 static const JSCFunctionListEntry DocumentFuncs[] = {
+    /* Node (see ElementFuncs) */
+    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
+    JS_CFUNC_DEF("appendChild", 1, element_append_child),
+    JS_CFUNC_DEF("insertBefore", 1, element_append_child), /* XXX */
+    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
+    JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
+    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
+    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
+    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
+    JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
+    JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
+
+    /* EventTarget */
+    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
+    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
+    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
+
+    /* Document */
     JS_CFUNC_DEF("open", 1, document_open),
     JS_CFUNC_DEF("close", 1, document_close),
     JS_CFUNC_DEF("write", 1, document_write),
     JS_CFUNC_DEF("writeln", 1, document_writeln),
     JS_CGETSET_DEF("location", document_location_get, document_location_set),
-    JS_CFUNC_DEF("appendChild", 1, element_append_child),
-    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
     JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set),
-    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
-    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
-    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event)
+    JS_CGETSET_DEF("referrer", document_referrer_get, NULL)
 };
 
-#if 0
-static int
-io_stdout (void *context, unsigned char *buffer, unsigned int amount)
+static void
+log_to_file(JSContext *ctx, const char *head, int argc, JSValueConst *argv)
 {
     FILE *fp;
-    int	 i = 0;
 
-    if ((fp = fopen("w3mjs.log", "a")) != NULL) {
-	fprintf(fp, "STDOUT: ");
-	i = fwrite (buffer, 1, amount, fp);
+    if ((fp = fopen("w3mlog.txt", "a")) != NULL) {
+	int i;
+
+	fwrite(head, strlen(head), 1, fp);
+
+	for (i = 0; i < argc; i++) {
+	    const char *str = JS_ToCString(ctx, argv[i]);
+	    fwrite(" ", 1, 1, fp);
+	    JS_FreeCString(ctx, str);
+	    fwrite(str, strlen(str), 1, fp);
+	}
+	fwrite("\n", 1, 1, fp);
+
 	fclose(fp);
     }
-    return i;
 }
 
-static int
-io_stderr (void *context, unsigned char *buffer, unsigned int amount)
+static JSValue
+console_error(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    FILE *fp;
-    int	 i = 0;
+    log_to_file(ctx, "ERROR:", argc, argv);
 
-    if ((fp = fopen("w3mjs.log", "a")) != NULL) {
-	fprintf(fp, "STDERR: ");
-	i = fwrite (buffer, 1, amount, fp);
-	fclose(fp);
-	return i;
-    }
-    return i;
+    return JS_UNDEFINED;
 }
-#endif
+
+static JSValue
+console_log(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_to_file(ctx, "LOG:", argc, argv);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+console_warn(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_to_file(ctx, "WARN:", argc, argv);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+console_info(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_to_file(ctx, "INFO:", argc, argv);
+
+    return JS_UNDEFINED;
+}
+
+static struct {
+    char *name;
+    JSCFunction *func;
+} ConsoleFuncs[] = {
+    { "error", console_error } ,
+    { "log", console_log },
+    { "warn", console_warn },
+    { "info", console_info },
+};
 
 static void
 create_class(JSContext *ctx, JSValue gl, JSClassID *id, char *name,
@@ -1475,6 +1691,8 @@ js_html_init(void)
     JSValue gl;
     JSValue *tagnames;
     int i;
+    WindowState *state;
+    JSValue console;
     char script[] =
 	"class NodeList extends Array {};"
 	"class HTMLCollection extends Array {};"
@@ -1510,6 +1728,7 @@ js_html_init(void)
 	"    attr.name = key;"
 	"    attr.value = value;"
 	"    attrs.push(attr);"
+	"    attrs[key] = value;"
 	"  }"
 	"  return attrs;"
 	"}";
@@ -1528,11 +1747,8 @@ js_html_init(void)
     ctx = JS_NewContext(rt);
     gl = JS_GetGlobalObject(ctx);
 
-    JS_Eval(ctx, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
-
-    create_class(ctx, gl, &WindowClassID, "Window", WindowFuncs,
-		 sizeof(WindowFuncs) / sizeof(WindowFuncs[0]), &WindowClass,
-		 window_new);
+    JS_FreeValue(ctx, backtrace(ctx, script,
+				JS_Eval(ctx, script, sizeof(script) - 1, "<input>", EVAL_FLAG)));
 
     create_class(ctx, gl, &LocationClassID, "Location", LocationFuncs,
 		 sizeof(LocationFuncs) / sizeof(LocationFuncs[0]), &LocationClass,
@@ -1570,10 +1786,26 @@ js_html_init(void)
 		 sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]), &DocumentClass,
 		 document_new);
 
-    JS_SetPropertyStr(ctx, gl, "alert", JS_NewCFunction(ctx, window_alert, "alert", 1));
-    JS_SetPropertyStr(ctx, gl, "confirm", JS_NewCFunction(ctx, window_confirm, "confirm", 1));
-
     JS_SetPropertyStr(ctx, gl, "w3m_eventListeners", JS_NewArray(ctx));
+
+    /* window object */
+    state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
+    state->win = newGeneralList();
+    state->close = FALSE;
+    JS_SetOpaque(gl, state);
+
+    for (i = 0; i < sizeof(WindowFuncs) / sizeof(WindowFuncs[0]); i++) {
+	JS_SetPropertyStr(ctx, gl, WindowFuncs[i].name,
+			  JS_NewCFunction(ctx, WindowFuncs[i].func, WindowFuncs[i].name, 1));
+    }
+
+    /* console object */
+    console = JS_NewObject(ctx);
+    for (i = 0; i < sizeof(ConsoleFuncs) / sizeof(ConsoleFuncs[0]); i++) {
+	JS_SetPropertyStr(ctx, console, ConsoleFuncs[i].name,
+			  JS_NewCFunction(ctx, ConsoleFuncs[i].func, ConsoleFuncs[i].name, 1));
+    }
+    JS_SetPropertyStr(ctx, gl, "console", console);
 
     JS_FreeValue(ctx, gl);
 
@@ -1588,6 +1820,10 @@ js_html_init(void)
 
 void
 js_html_final(JSContext *ctx) {
+    JSValue gl = JS_GetGlobalObject(ctx);
+    GC_FREE(JS_GetOpaque(gl, WindowClassID));
+    JS_FreeValue(ctx, gl);
+
     GC_FREE(JS_GetContextOpaque(ctx));
     JS_FreeContext(ctx);
 }
@@ -1600,34 +1836,8 @@ js_eval(JSContext *ctx, char *script) {
 
 JSValue
 js_eval2(JSContext *ctx, char *script) {
-#if 0
-    FILE *fp = fopen(Sprintf("w3mlog%p.txt", ctx)->ptr, "a");
-    fprintf(fp, "%s\n", script);
-    fclose(fp);
-#endif
-
-    JSValue ret = JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
-
-#ifdef SCRIPT_DEBUG
-    if (JS_IsException(ret)) {
-	JSValue err = JS_GetException(ctx);
-	const char *err_str = JS_ToCString(ctx, err);
-
-	JSValue stack = JS_GetPropertyStr(ctx, err, "stack");
-	const char *stack_str = JS_ToCString(ctx, stack);
-
-	FILE *fp = fopen("scriptlog.txt", "a");
-	fprintf(fp, "<%s>\n%s\n%s\n", err_str, stack_str, script);
-	fclose(fp);
-
-	JS_FreeCString(ctx, err_str);
-	JS_FreeCString(ctx, stack_str);
-	JS_FreeValue(ctx, err);
-	JS_FreeValue(ctx, stack);
-    }
-#endif
-
-    return ret;
+    return backtrace(ctx, script,
+		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 }
 
 char *

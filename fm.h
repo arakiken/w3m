@@ -445,6 +445,15 @@ typedef struct {
     int prevhseq;
 } HmarkerList;
 
+#ifdef USE_SCRIPT
+typedef struct {
+    Str str;
+    char *src;
+    char *lang;
+    char *target;
+} Script;
+#endif
+
 #define LINK_TYPE_NONE 0
 #define LINK_TYPE_REL  1
 #define LINK_TYPE_REV  2
@@ -516,11 +525,11 @@ typedef struct _Buffer {
     char *ssl_certificate;
 #endif
 #ifdef USE_SCRIPT
-    GeneralList *script_str;
     void *script_interp;
     char *script_lang;
-    char *location;
     char *script_target;
+    GeneralList *scripts;
+    char *location;
 #endif
     char image_flag;
     char image_loaded;
@@ -747,11 +756,7 @@ struct html_feed_environ {
     char *title;
     int blank_lines;
 #ifdef USE_SCRIPT
-    GeneralList *cur_script_str;
-    char *cur_script_lang;
-    void *script_interp;
-    char *script_lang;
-    char *script_target;
+    GeneralList *scripts;
 #endif
 };
 
