@@ -1250,6 +1250,10 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
 	if (output) {
 	    *output = str;
 	}
+    } else {
+	if (output) {
+	    *output = NULL;
+	}
     }
 
     return js_is_true(interp, ret);
