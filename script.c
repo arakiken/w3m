@@ -135,15 +135,12 @@ check_property_name(char *name)
 #endif
 
 /*
- * document -> documentElement(<html>) -> children, childNodes -> ...
- *                                          ^
- *                                          |
- *          -> body ------------------------+
- *          -> head ------------------------+
- *
- *          -> children, childNodes -> body, head -> orphan elements
+ * document -> documentElement(<html>) -> children == childNodes -> ...
+ *          -> head                                |
+ *          -> body      +-------------------------+
+ *                       |
+ *          -> children == childNodes -> head, body -> forms, orphan elements
  *          -> forms -> elements == children == childNodes -> options == children == childNodes
- *             (see getElementById() and getElementsByName())
  */
 
 static void
@@ -338,15 +335,19 @@ script_buf2js(Buffer *buf, void *interp)
 		"  }"
 		"};"
 		""
+		"/* see element_text_content_set() in js_html.c */"
 	        "document.createTextNode = function(text) {"
-		"  let element = new HTMElement(\"span\");"
-		"  element.innerText = text;"
-		"  element.textContent = text;"
+		"  let element = new HTMElement(\"#text\");"
+		"  element.nodeValue = text;"
+		"  element.nodeType = 3; /* TEXT_NODE */"
 		"  return element;"
 		"};"
 		""
 	        "document.createComment = function(data) {"
-		"  return new HTMLElement(\"#comment\");"
+		"  let element = new HTMLElement(\"#comment\");"
+		"  element.nodeValue = data;"
+		"  element.nodeType = 8; /* COMMENT_NODE */"
+		"  return element;"
 		"};"
 		""
 		"function w3m_getElementById(element, id) {"
@@ -648,7 +649,6 @@ script_buf2js(Buffer *buf, void *interp)
 	}
     }
 
-    /* XXX HTMLCollection */
     js_eval(interp, "document.forms = new HTMLCollection();");
 
     /* For document.children.length in script.c */

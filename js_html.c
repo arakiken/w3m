@@ -1095,19 +1095,28 @@ element_do_scroll(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *a
 static JSValue
 element_get_elements_by_tag_name(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    const char *tag, *orig_tag;
+    const char *tag;
     char *script;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
 	return JS_EXCEPTION;
     }
 
-    orig_tag = tag = JS_ToCString(ctx, argv[0]);
-    if (strcmp(tag, "*") == 0) {
-	tag = "span";
-    }
-    script = Sprintf("[ this.appendChild(new HTMLElement(\"%s\")) ];", tag)->ptr;
-    JS_FreeCString(ctx, orig_tag);
+    tag = JS_ToCString(ctx, argv[0]);
+    /* See script_buf2js() in script.c */
+    script = Sprintf("{"
+		     "  let elements = new HTMLCollection();"
+		     "  w3m_getElementsByTagName(this, \"%s\", elements);"
+		     "  if (elements.length == 0) {"
+		     "    let element = new HTMLElement(\"span\");"
+		     "    element.name = \"%s\";"
+		     "    element.value = \"\";"
+		     "    document.body.appendChild(element);"
+		     "    elements.push(element);"
+		     "  }"
+		     "  elements;"
+		     "}", tag, tag)->ptr;
+    JS_FreeCString(ctx, tag);
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
@@ -1117,10 +1126,31 @@ static JSValue
 element_get_elements_by_class_name(JSContext *ctx, JSValueConst jsThis,
 				   int argc, JSValueConst *argv)
 {
-    char script[] = "[ this.appendChild(new HTMLElement(\"span\")) ];";
+    const char *tag;
+    char *script;
+
+    if (argc < 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    tag = JS_ToCString(ctx, argv[0]);
+    /* See script_buf2js() in script.c */
+    script = Sprintf("{"
+		     "  let elements = new HTMLCollection();"
+		     "  w3m_getElementsByClassName(document, \"%s\", elements);"
+		     "  if (elements.length == 0) {"
+		     "    let element = new HTMLElement(\"span\");"
+		     "    element.className = \"%s\";"
+		     "    element.value = \"\";"
+		     "    document.body.appendChild(element);"
+		     "    elements.push(element);"
+		     "  }"
+		     "  elements;"
+		     "};", tag, tag)->ptr;
+    JS_FreeCString(ctx, tag);
 
     return backtrace(ctx, script,
-		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+		     JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
 }
 
 static JSValue
@@ -1158,7 +1188,9 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     JS_SetPropertyStr(ctx, jsThis, "children", children);
     JS_SetPropertyStr(ctx, jsThis, "childNodes", JS_DupValue(ctx, children)); /* NodeList */
 
+    /* See document.createTextNode() */
     JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, val));
+    JS_SetPropertyStr(ctx, element, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
     JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
 
     JS_FreeValue(ctx, nodename);
@@ -1458,6 +1490,7 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     state = (DocumentState *)GC_MALLOC_UNCOLLECTABLE(sizeof(DocumentState));
     state->write = NULL;
     state->cookie = NULL;
+
     JS_SetOpaque(obj, state);
 
     return obj;

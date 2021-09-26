@@ -1801,7 +1801,10 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    if (!Currentbuf)
 		return NULL;
 	    Str output = NULL;
-	    script_eval(Currentbuf, "JavaScript", pu.file, 1, &output);
+	    script_eval(Currentbuf, "JavaScript",
+			wc_Str_conv(Str_url_unquote(Strnew_charp(pu.file), FALSE, TRUE),
+				    Currentbuf->document_charset, WC_CES_UTF_8)->ptr,
+			1, &output);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
 	    if (output) {
@@ -4345,7 +4348,7 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
     if (parsedtag_get_value(tag, ATTR_SRC, &q) &&
 	/* src="" in http://alphasis.info/2011/04/javascript-form-check-required-input/ */
 	*q != '\0') {
-	script->src = q;
+	script->src = file_unquote(q);
     }
 
     if (parsedtag_get_value(tag, ATTR_TYPE, &p)) {
