@@ -3456,6 +3456,7 @@ followForm(FormList *fl)
     _followForm(FALSE, fl);
 }
 
+#ifdef USE_JAVASCRIPT
 static int
 script_eval_and_load(Buffer *buf, char *script)
 {
@@ -3475,6 +3476,7 @@ script_eval_and_load(Buffer *buf, char *script)
 
     return ret;
 }
+#endif
 
 static void
 _followForm(int submit, FormList *fl)

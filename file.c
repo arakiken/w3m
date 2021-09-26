@@ -4334,7 +4334,7 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
     Script *script;
     char *p, *q, *t;
 
-    if (frame_source || !use_script)
+    if (frame_source)
 	return;
 
     if (h_env->scripts == NULL) {
