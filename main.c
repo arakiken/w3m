@@ -3461,7 +3461,7 @@ static int
 script_eval_and_load(Buffer *buf, char *script)
 {
     Str output = NULL;
-    int ret = script_eval(buf, "javascript", script, 1, &output);
+    int ret = script_eval(buf, "javascript", script, 1, 1, &output);
 
     if (buf->location) {
 	Buffer *new_buf = loadGeneralFile(buf->location, baseURL(buf), NO_REFERER, 0, NULL);
@@ -3625,7 +3625,7 @@ _followForm(int submit, FormList *fl)
 	    if (strncmp(script, "return", 6) == 0) { script += 6; }
 	    while (*script == ' ' || *script == '\t') { script++; }
 
-	    if (!script_eval(Currentbuf, "javascript", script, 1, NULL)) {
+	    if (!script_eval(Currentbuf, "javascript", script, 1, 1, NULL)) {
 		break;
 	    }
 	}
@@ -3700,7 +3700,7 @@ _followForm(int submit, FormList *fl)
 	    if (strncmp(script, "return", 6) == 0) { script += 6; }
 	    while (*script == ' ' || *script == '\t') { script++; }
 
-	    if (!script_eval(Currentbuf, "javascript", script, 1, NULL)) {
+	    if (!script_eval(Currentbuf, "javascript", script, 1, 1, NULL)) {
 		break;
 	    }
 	}

@@ -1214,11 +1214,10 @@ onload(void *interp)
 }
 
 static int
-script_js_eval(Buffer *buf, char *script, int buf2js, Str *output)
+script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
 {
     void *interp;
     JSValue ret;
-    Str str;
     char *p;
 
     if (buf == NULL) {
@@ -1246,9 +1245,11 @@ script_js_eval(Buffer *buf, char *script, int buf2js, Str *output)
     ret = js_eval2(interp, script);
     onload(interp);
 
-    str = script_js2buf(buf, interp);
-    if (output) {
-	*output = str;
+    if (js2buf) {
+	Str str = script_js2buf(buf, interp);
+	if (output) {
+	    *output = str;
+	}
     }
 
     return js_is_true(interp, ret);
@@ -1265,7 +1266,7 @@ script_js_close(Buffer *buf)
 #endif
 
 int
-script_eval(Buffer *buf, char *lang, char *script, int buf2js, Str *output)
+script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, Str *output)
 {
     if (buf == NULL) {
 	return 0;
@@ -1284,7 +1285,7 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, Str *output)
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
 	! strcasecmp(lang, "jscript"))
-	return script_js_eval(buf, script, buf2js, output);
+	return script_js_eval(buf, script, buf2js, js2buf, output);
     else
 #endif
 	return 0;
