@@ -415,6 +415,32 @@ examineFile(char *path, URLFile *uf)
     }
 }
 
+int
+examineFile2(char *path, URLFile *uf)
+{
+    struct stat stbuf;
+
+    check_compression(path, uf);
+    if (uf->compression == CMP_NOCOMPRESS) {
+	return 0;
+    }
+
+    uf->guess_type = NULL;
+    if (path == NULL || *path == '\0' ||
+	stat(path, &stbuf) == -1 || NOT_REGULAR(stbuf.st_mode)) {
+	uf->stream = NULL;
+	return 0;
+    } else {
+	char *ext = uf->ext;
+	char *t0 = uncompressed_file_type(path, &ext);
+	uf->stream = openIS(path);
+	uf->guess_type = t0;
+	uf->ext = ext;
+	uncompress_stream(uf, NULL);
+	return 1;
+    }
+}
+
 #define S_IXANY	(S_IXUSR|S_IXGRP|S_IXOTH)
 
 int
@@ -1802,9 +1828,9 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 		return NULL;
 	    Str output = NULL;
 	    script_eval(Currentbuf, "JavaScript",
-			wc_Str_conv(Str_url_unquote(Strnew_charp(pu.file), FALSE, TRUE),
+			wc_Str_conv(Str_url_unquote(Strnew_charp(pu.file), FALSE, FALSE),
 				    Currentbuf->document_charset, WC_CES_UTF_8)->ptr,
-			1, 1, &output);
+			-1, 1, &output);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
 	    if (output) {

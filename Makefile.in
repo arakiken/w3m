@@ -35,7 +35,7 @@ RC_DIR = @RC_DIR@
 ETC_DIR = $(sysconfdir)
 CONF_DIR = $(sysconfdir)/$(PACKAGE)
 
-CFLAGS = $(OPTS) -I. -I$(top_srcdir) @CFLAGS@ $(CPPFLAGS) $(DEFS)
+CFLAGS = $(OPTS) -I. -I$(top_srcdir) @CFLAGS@ @LIBXML2_CFLAGS@ $(CPPFLAGS) $(DEFS)
 WCCFLAGS = @WCCFLAGS@
 CPPFLAGS = @CPPFLAGS@
 DEFS = @DEFS@ -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
@@ -44,7 +44,7 @@ DEFS = @DEFS@ -DAUXBIN_DIR=\"$(AUXBIN_DIR)\" \
 	-DRC_DIR=\"$(RC_DIR)\" \
         -DLOCALEDIR=\"$(localedir)\"
 LDFLAGS = @LDFLAGS@
-LIBS = @LIBS@
+LIBS = @LIBS@ @LIBXML2_LIBS@
 GC_LIBS = @LIBGC@
 EXT_LIBS = -L. -lindep @LIBINTL@ $(GC_LIBS)
 W3M_LIBS = @W3M_LIBS@

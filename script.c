@@ -141,6 +141,7 @@ check_property_name(char *name)
  *                       |
  *          -> children == childNodes -> head, body -> forms, orphan elements
  *          -> forms -> elements == children == childNodes -> options == children == childNodes
+ *                      (see init_children() in js_html.c)
  */
 
 static void
@@ -232,7 +233,6 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
     case FORM_SELECT:
 #ifdef MENU_SELECT
 	js_eval(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex = %d;", i, j, fi->selected)->ptr);
-	js_eval(interp, Sprintf("document.forms[%d].elements[%d].options = document.forms[%d].elements[%d].children;", i, j, i, j)->ptr);
 	for (k = 0, opt = fi->select_option; opt != NULL; k++, opt = opt->next) {
 	    put_select_option(interp, i, j, k, opt);
 	}
@@ -278,12 +278,80 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 }
 
 static void
+update_forms(Buffer *buf, void *interp)
+{
+    int i;
+
+    js_eval(interp,
+	    "if (document.forms != undefined) {"
+	    "  for (let i = 0; i < document.forms.length; i++) {"
+	    "    document.body.removeChild(document.forms[i]);"
+	    "  }"
+	    "}"
+	    "document.forms = new HTMLCollection();");
+
+    /* For document.children.length in script.c */
+    if (buf->formlist != NULL) {
+	FormList *fl;
+
+	for (i = 0, fl = buf->formlist; fl != NULL; i++, fl = fl->next) {
+	    char *m, *a, *e, *n, *t, *id;
+	    FormItemList *fi;
+	    int j;
+
+	    js_eval(interp, Sprintf("document.forms[%d] = new HTMLFormElement();", i)->ptr);
+	    js_eval(interp, Sprintf("document.body.appendChild(document.forms[%d]);", i)->ptr);
+	    if (fl->method == FORM_METHOD_POST) {
+		m = "post";
+	    } else if (fl->method == FORM_METHOD_INTERNAL) {
+		m = "internal";
+	    } else {
+		m = "get";
+	    }
+	    a = e = n = t = id = "";
+	    if (fl->enctype == FORM_ENCTYPE_MULTIPART) {
+		e = "multipart/form-data";
+	    }
+	    if (fl->action && fl->action->length > 0)
+		a = fl->action->ptr;
+	    if (fl->name != NULL)
+		n = i2uc(fl->name);
+	    if (fl->id != NULL)
+		id = fl->id;
+	    if (fl->target != NULL)
+		t = fl->target;
+
+	    js_eval(interp, Sprintf("document.forms[%d].method = \"%s\";", i, m)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].action = \"%s\";", i, a)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].encoding = \"%s\";", i, e)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].name = \"%s\";", i, n)->ptr);
+	    js_eval(interp, Sprintf("document.forms[%d].id = \"%s\";", i, id)->ptr);
+	    /* fl->name might be '\0' (see process_input() in file.c) */
+	    if (*n != '\0' && check_property_name(n)) {
+		js_eval(interp, Sprintf("document.%s = document.forms[%d];", n, i)->ptr);
+		/* js_eval(interp, Sprintf("document.forms[\"%s\"] = document.forms[%d];", n, i)->ptr);*/
+	    }
+	    js_eval(interp, Sprintf("document.forms[%d].target = \"%s\";", i, t)->ptr);
+
+	    for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
+		put_form_element(interp, i, j, fi);
+	    }
+
+	    /* http://alphasis.info/2013/12/javascript-gyakubiki-form-immediatelyreflect/ */
+	    js_eval(interp, Sprintf("document.forms[%d].length = document.forms[%d].elements.length;", i, i)->ptr);
+	}
+    }
+}
+
+static void
 script_buf2js(Buffer *buf, void *interp)
 {
     JSValue ret;
     int i;
     char *t, *c;
+#ifdef USE_COOKIE
     Str cs;
+#endif
 
     ret = js_eval2(interp, "document;");
     if (js_is_exception(ret)) {
@@ -566,7 +634,8 @@ script_buf2js(Buffer *buf, void *interp)
 		"  let str = \"\";"
 		"  for (let i = 0; i < node.childNodes.length; i++) {"
 		"    if (node.childNodes[i].nodeName === \"#text\" &&"
-		"        node.childNodes[i].nodeValue != null) {"
+		"        node.childNodes[i].nodeValue != null &&"
+		"        node.childNodes[i].isModified == true) {"
 		"      if (node.name != undefined) {"
 		"        str += node.name;"
 		"        str += \"=\";"
@@ -576,7 +645,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"      }"
 		"      str += node.childNodes[i].nodeValue;"
 		"      str += \" \";"
-		"      node.childNodes[i].nodeValue = null;"
+		"      node.isModified = false;"
 		"    }"
 		"    str += w3m_textNodesToStr(node.childNodes[i]);"
 		"  }"
@@ -641,60 +710,7 @@ script_buf2js(Buffer *buf, void *interp)
 	}
     }
 
-    js_eval(interp, "document.forms = new HTMLCollection();");
-
-    /* For document.children.length in script.c */
-    if (buf->formlist != NULL) {
-	FormList *fl;
-
-	for (i = 0, fl = buf->formlist; fl != NULL; i++, fl = fl->next) {
-	    char *m, *a, *e, *n, *t, *id;
-	    FormItemList *fi;
-	    int j;
-
-	    js_eval(interp, Sprintf("document.forms[%d] = new HTMLFormElement();", i)->ptr);
-	    js_eval(interp, Sprintf("document.body.appendChild(document.forms[%d]);", i)->ptr);
-	    if (fl->method == FORM_METHOD_POST) {
-		m = "post";
-	    } else if (fl->method == FORM_METHOD_INTERNAL) {
-		m = "internal";
-	    } else {
-		m = "get";
-	    }
-	    a = e = n = t = id = "";
-	    if (fl->enctype == FORM_ENCTYPE_MULTIPART) {
-		e = "multipart/form-data";
-	    }
-	    if (fl->action && fl->action->length > 0)
-		a = fl->action->ptr;
-	    if (fl->name != NULL)
-		n = i2uc(fl->name);
-	    if (fl->id != NULL)
-		id = fl->id;
-	    if (fl->target != NULL)
-		t = fl->target;
-
-	    js_eval(interp, Sprintf("document.forms[%d].method = \"%s\";", i, m)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].action = \"%s\";", i, a)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].encoding = \"%s\";", i, e)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].name = \"%s\";", i, n)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].id = \"%s\";", i, id)->ptr);
-	    /* fl->name might be '\0' (see process_input() in file.c) */
-	    if (*n != '\0' && check_property_name(n)) {
-		js_eval(interp, Sprintf("document.%s = document.forms[%d];", n, i)->ptr);
-		/* js_eval(interp, Sprintf("document.forms[\"%s\"] = document.forms[%d];", n, i)->ptr);*/
-	    }
-	    js_eval(interp, Sprintf("document.forms[%d].target = \"%s\";", i, t)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].elements = document.forms[%d].children;", i, i)->ptr);
-
-	    for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
-		put_form_element(interp, i, j, fi);
-	    }
-
-	    /* http://alphasis.info/2013/12/javascript-gyakubiki-form-immediatelyreflect/ */
-	    js_eval(interp, Sprintf("document.forms[%d].length = document.forms[%d].elements.length;", i, i)->ptr);
-	}
-    }
+    update_forms(buf, interp);
 }
 
 static void
@@ -1183,10 +1199,13 @@ static void
 onload(void *interp)
 {
     js_eval(interp,
-	    "for (let i = 0; i < w3m_eventListeners.length; i++) {"
-	    "  w3m_eventListeners[i].callback(w3m_eventListeners[i]);"
+	    "if (w3m_eventListeners.length > 0) {"
+	    "  let listeners = Object.assign(new Array(), w3m_eventListeners);"
+	    "  w3m_eventListeners = new Array();"
+	    "  for (let i = 0; i < listeners.length; i++) {"
+	    "    listeners[i].callback(listeners[i]);"
+	    "  }"
 	    "}"
-	    "w3m_eventListeners = new Array();"
 	    ""
 	    "function w3m_onload(element) {"
 	    "  if (element.onload != undefined) {"
@@ -1232,7 +1251,12 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
     }
 
     if (buf2js) {
-	script_buf2js(buf, interp);
+	if (buf2js > 0) {
+	    script_buf2js(buf, interp);
+	    create_dom_tree(interp, buf->sourcefile);
+	} else {
+	    update_forms(buf, interp);
+	}
     }
 
     /* 0x1f(^_) -> ' ' to avoid quickjs error. */

@@ -122,8 +122,19 @@ case "$host_os" in
     ;;
 esac
 
-# AC_SEARCH_LIBS() automatically specifies -lm which libquickjs.a requires.
-AC_SEARCH_LIBS(JS_Eval, quickjs, [AC_DEFINE(USE_JAVASCRIPT)])
+AC_ARG_ENABLE(javascript, [  --disable-javascript    do not use javascript])
+if test "$enable_javascript" != "no"; then
+	# AC_SEARCH_LIBS() automatically specifies -lm which libquickjs.a requires.
+	AC_SEARCH_LIBS(JS_Eval, quickjs,
+		[
+			AC_DEFINE(USE_JAVASCRIPT)
+			PKG_CHECK_MODULES(LIBXML2, libxml-2.0, have_libxml2=yes, have_libxml2=no)
+			if test "$have_libxml2" = "yes"; then
+				LIBXML2_CFLAGS="$LIBXML2_CFLAGS -DUSE_LIBXML2"
+				enable_javascript="YES"
+			fi
+		])
+fi
 
 AC_HEADER_DIRENT
 AC_HEADER_STDC
@@ -193,3 +204,11 @@ w3mhelp-w3m_en.html w3mhelp-w3m_ja.html \
 w3mhelp-lynx_en.html w3mhelp-lynx_ja.html])
 
 chmod +x posubst
+
+if test "$enable_javascript" = "YES"; then
+	if test "$have_libxml2" = "no"; then
+		echo "Build w3m-js without libxml2"
+	else
+		echo "Build w3m-js"
+	fi
+fi

@@ -188,6 +188,7 @@ extern char *url_decode0(const char *url);
 #define url_decode2(url, buf) url_decode0(url)
 #endif /* !defined(USE_M17N) */
 extern void examineFile(char *path, URLFile *uf);
+extern int examineFile2(char *path, URLFile *uf);
 extern char *acceptableEncoding();
 extern int dir_exist(char *path);
 extern int is_html_type(char *type);

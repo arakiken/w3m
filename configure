@@ -628,6 +628,8 @@ HELP_DIR
 SIGNAL_RETURN
 RETSIGTYPE
 HAVE_SIGSETJMP
+LIBXML2_LIBS
+LIBXML2_CFLAGS
 USE_BINMODE_STREAM
 LIBGC
 AUXBIN_TARGETS
@@ -841,6 +843,7 @@ with_cafile
 enable_digest_auth
 with_termlib
 with_gc
+enable_javascript
 '
       ac_precious_vars='build_alias
 host_alias
@@ -859,7 +862,9 @@ PKG_CONFIG
 PKG_CONFIG_PATH
 PKG_CONFIG_LIBDIR
 SSL_CFLAGS
-SSL_LIBS'
+SSL_LIBS
+LIBXML2_CFLAGS
+LIBXML2_LIBS'
 
 
 # Initialize some variables set by options.
@@ -1515,6 +1520,7 @@ Optional Features:
   --disable-ipv6          disable IPv6
   --disable-sslverify     disable SSL certificate verification
   --disable-digest-auth   disable digest auth
+  --disable-javascript    do not use javascript
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -1559,6 +1565,10 @@ Some influential environment variables:
               path overriding pkg-config's built-in search path
   SSL_CFLAGS  C compiler flags for SSL, overriding pkg-config
   SSL_LIBS    linker flags for SSL, overriding pkg-config
+  LIBXML2_CFLAGS
+              C compiler flags for LIBXML2, overriding pkg-config
+  LIBXML2_LIBS
+              linker flags for LIBXML2, overriding pkg-config
 
 Use these variables to override the choices made by `configure' or to help
 it to find libraries and programs with nonstandard names/locations.
@@ -9149,8 +9159,14 @@ case "$host_os" in
     ;;
 esac
 
-# AC_SEARCH_LIBS() automatically specifies -lm which libquickjs.a requires.
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing JS_Eval" >&5
+# Check whether --enable-javascript was given.
+if test "${enable_javascript+set}" = set; then :
+  enableval=$enable_javascript;
+fi
+
+if test "$enable_javascript" != "no"; then
+	# AC_SEARCH_LIBS() automatically specifies -lm which libquickjs.a requires.
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing JS_Eval" >&5
 $as_echo_n "checking for library containing JS_Eval... " >&6; }
 if ${ac_cv_search_JS_Eval+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -9203,10 +9219,86 @@ $as_echo "$ac_cv_search_JS_Eval" >&6; }
 ac_res=$ac_cv_search_JS_Eval
 if test "$ac_res" != no; then :
   test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-  $as_echo "#define USE_JAVASCRIPT 1" >>confdefs.h
+
+			$as_echo "#define USE_JAVASCRIPT 1" >>confdefs.h
+
+
+pkg_failed=no
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for LIBXML2" >&5
+$as_echo_n "checking for LIBXML2... " >&6; }
+
+if test -n "$LIBXML2_CFLAGS"; then
+    pkg_cv_LIBXML2_CFLAGS="$LIBXML2_CFLAGS"
+ elif test -n "$PKG_CONFIG"; then
+    if test -n "$PKG_CONFIG" && \
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libxml-2.0\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "libxml-2.0") 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; then
+  pkg_cv_LIBXML2_CFLAGS=`$PKG_CONFIG --cflags "libxml-2.0" 2>/dev/null`
+else
+  pkg_failed=yes
+fi
+ else
+    pkg_failed=untried
+fi
+if test -n "$LIBXML2_LIBS"; then
+    pkg_cv_LIBXML2_LIBS="$LIBXML2_LIBS"
+ elif test -n "$PKG_CONFIG"; then
+    if test -n "$PKG_CONFIG" && \
+    { { $as_echo "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"libxml-2.0\""; } >&5
+  ($PKG_CONFIG --exists --print-errors "libxml-2.0") 2>&5
+  ac_status=$?
+  $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
+  test $ac_status = 0; }; then
+  pkg_cv_LIBXML2_LIBS=`$PKG_CONFIG --libs "libxml-2.0" 2>/dev/null`
+else
+  pkg_failed=yes
+fi
+ else
+    pkg_failed=untried
+fi
+
+
+
+if test $pkg_failed = yes; then
+   	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+
+if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
+        _pkg_short_errors_supported=yes
+else
+        _pkg_short_errors_supported=no
+fi
+        if test $_pkg_short_errors_supported = yes; then
+	        LIBXML2_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors "libxml-2.0" 2>&1`
+        else
+	        LIBXML2_PKG_ERRORS=`$PKG_CONFIG --print-errors "libxml-2.0" 2>&1`
+        fi
+	# Put the nasty error message in config.log where it belongs
+	echo "$LIBXML2_PKG_ERRORS" >&5
+
+	have_libxml2=no
+elif test $pkg_failed = untried; then
+     	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+	have_libxml2=no
+else
+	LIBXML2_CFLAGS=$pkg_cv_LIBXML2_CFLAGS
+	LIBXML2_LIBS=$pkg_cv_LIBXML2_LIBS
+        { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+	have_libxml2=yes
+fi
+			if test "$have_libxml2" = "yes"; then
+				LIBXML2_CFLAGS="$LIBXML2_CFLAGS -DUSE_LIBXML2"
+				enable_javascript="YES"
+			fi
 
 fi
 
+fi
 
 ac_header_dirent=no
 for ac_hdr in dirent.h sys/ndir.h sys/dir.h ndir.h; do
@@ -11359,3 +11451,11 @@ fi
 
 
 chmod +x posubst
+
+if test "$enable_javascript" = "YES"; then
+	if test "$have_libxml2" = "no"; then
+		echo "Build w3m-js without libxml2"
+	else
+		echo "Build w3m-js"
+	fi
+fi
