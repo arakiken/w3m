@@ -31,6 +31,15 @@ static JSRuntime *rt;
 int term_ppc;
 int term_ppl;
 
+#ifdef USE_LIBXML2
+#if 0
+#define DOM_DEBUG
+#endif
+#include <libxml/HTMLparser.h>
+#include <libxml/HTMLtree.h>
+static void create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml);
+#endif
+
 #ifdef SCRIPT_DEBUG
 static JSValue
 backtrace(JSContext *ctx, char *script, JSValue eval_ret)
@@ -654,10 +663,9 @@ static const JSClassDef HTMLFormElementClass = {
 };
 
 static void
-init_children(JSContext *ctx, JSValue obj, JSValue tagname)
+init_children(JSContext *ctx, JSValue obj, const char *tagname)
 {
     JSValue children = JS_Eval(ctx, "new HTMLCollection();", 21, "<input>", EVAL_FLAG);
-    const char *str;
 
     /* Node */
     JS_SetPropertyStr(ctx, obj, "childNodes", children); /* XXX NodeList */
@@ -665,30 +673,33 @@ init_children(JSContext *ctx, JSValue obj, JSValue tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "children", JS_DupValue(ctx, children));
 
-    str = JS_ToCString(ctx, tagname);
 
-    if (strcasecmp(str, "form") == 0) {
+    if (strcasecmp(tagname, "form") == 0) {
 	JS_SetPropertyStr(ctx, obj, "elements", JS_DupValue(ctx, children));
-    } else if (strcasecmp(str, "select") == 0) {
+    } else if (strcasecmp(tagname, "select") == 0) {
 	JS_SetPropertyStr(ctx, obj, "options", JS_DupValue(ctx, children));
     }
-
-    JS_FreeCString(ctx, str);
 }
 
 static void
 set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
+    const char *str = JS_ToCString(ctx, tagname);
     JSValue style;
-    JSValue children;
 
-    init_children(ctx, obj, tagname);
+    init_children(ctx, obj, str);
 
     /* Node */
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "nextSibling", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
+    if (strcasecmp(str, "#text") == 0) {
+	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
+    } else if (strcasecmp(str, "#comment") == 0) {
+	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 8)); /* COMMENT_NODE */
+    } else {
+	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
+    }
     JS_SetPropertyStr(ctx, obj, "nodeValue", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "nodeName", JS_DupValue(ctx, tagname));
 
@@ -710,6 +721,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 
     /* XXX HTMLSelectElement */
     JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
+
+    JS_FreeCString(ctx, str);
 }
 
 static JSValue
@@ -1204,22 +1217,46 @@ element_text_content_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    JSValue nodename = JS_NewStringLen(ctx, "#text", 5);
-    JSValue element = element_new(ctx, jsThis, 1, &nodename);
-    JSValue parent_nodename;
+    JSValue p_nodename = JS_GetPropertyStr(ctx, jsThis, "nodeName");
+    const char *str = JS_ToCString(ctx, p_nodename);
+    char *p;
 
-    JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, val));
-    JS_SetPropertyStr(ctx, element, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
-    JS_SetPropertyStr(ctx, element, "isModified", JS_TRUE);
+    init_children(ctx, jsThis, str);
+    JS_FreeCString(ctx, str);
+    JS_FreeValue(ctx, p_nodename);
 
-    parent_nodename = JS_GetPropertyStr(ctx, jsThis, "nodeName");
-    init_children(ctx, jsThis, parent_nodename);
-    JS_FreeValue(ctx, parent_nodename);
+#ifdef USE_LIBXML2
+#ifdef DOM_DEBUG
+    FILE *fp = fopen("domlog.txt", "a");
+    fprintf(fp, "=== innerHTML: %s\n", JS_ToCString(ctx, val));
+    fclose(fp);
+#endif
 
-    JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+    str = JS_ToCString(ctx, val);
+    if ((p = strchr(str, '<')) && strchr(p + 1, '>')) {
+	xmlDoc *doc = htmlReadMemory(str, strlen(str), "utf-8", "",
+				     HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
+				     HTML_PARSE_NOWARNING | HTML_PARSE_NOIMPLIED);
+	create_tree(ctx, xmlDocGetRootElement(doc), JS_DupValue(ctx, jsThis), 1);
+	xmlFreeDoc(doc);
+	xmlCleanupParser();
+    } else
+#endif
+    {
+	JSValue nodename = JS_NewStringLen(ctx, "#text", 5);
+	JSValue element = element_new(ctx, jsThis, 1, &nodename);
 
-    JS_FreeValue(ctx, nodename);
-    JS_FreeValue(ctx, element);
+	JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, val));
+	JS_SetPropertyStr(ctx, element, "isModified", JS_TRUE);
+
+	JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+
+	JS_FreeValue(ctx, nodename);
+	JS_FreeValue(ctx, element);
+    }
+#ifdef USE_LIBXML2
+    JS_FreeCString(ctx, str);
+#endif
 
     return JS_UNDEFINED;
 }
@@ -2009,29 +2046,24 @@ js_is_true(JSContext *ctx, JSValue value)
 
 #ifdef USE_LIBXML2
 
-#if 0
-#define DOM_DEBUG
-#endif
-
-#include <libxml/HTMLparser.h>
-#include <libxml/HTMLtree.h>
-
 #ifdef LIBXML_TREE_ENABLED
 static void
-create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent)
+create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 {
 #ifdef DOM_DEBUG
     FILE *fp = fopen("domlog.txt", "a");
+    fprintf(fp, "------\n");
 #endif
 
     for (; node; node = node->next) {
 	JSValue jsnode;
 
 	if (node->type == XML_ELEMENT_NODE &&
-	    strcasecmp((char*)node->name, "form") != 0 &&
-	    strcasecmp((char*)node->name, "select") != 0 &&
-	    strcasecmp((char*)node->name, "input") != 0 &&
-	    strcasecmp((char*)node->name, "textarea") != 0) {
+	    (innerhtml ||
+	     (strcasecmp((char*)node->name, "form") != 0 &&
+	      strcasecmp((char*)node->name, "select") != 0 &&
+	      strcasecmp((char*)node->name, "input") != 0 &&
+	      strcasecmp((char*)node->name, "textarea") != 0))) {
 	    JSValue arg = JS_NewString(ctx, (char*)node->name);
 	    xmlAttr *attr;
 
@@ -2073,19 +2105,26 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent)
 	    fprintf(fp, "text %s\n", node->content);
 #endif
 	    JS_SetPropertyStr(ctx, jsnode, "nodeValue", JS_NewString(ctx, (char*)node->content));
-	    JS_SetPropertyStr(ctx, jsnode, "nodeType", JS_NewInt32(ctx, 3));
+	    if (innerhtml) {
+		JS_SetPropertyStr(ctx, jsnode, "isModified", JS_TRUE);
+	    }
 	} else {
 #ifdef DOM_DEBUG
 	    fprintf(fp, "element %d\n", node->type);
 #endif
-
 	    continue;
 	}
 
 	element_append_child(ctx, jsparent, 1, &jsnode);
 	JS_FreeValue(ctx, jsnode);
 
-	create_tree(ctx, node->children, jsnode);
+#ifdef DOM_DEBUG
+	fclose(fp);
+#endif
+	create_tree(ctx, node->children, jsnode, innerhtml);
+#ifdef DOM_DEBUG
+	fp = fopen("domlog.txt", "a");
+#endif
     }
 #ifdef DOM_DEBUG
     fclose(fp);
@@ -2134,18 +2173,12 @@ create_dom_tree(JSContext *ctx, char *filename)
 
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
 	if (strcmp((char*)node->name, "body") == 0) {
-	    create_tree(ctx, node->children, js_eval2(ctx, "document.body;"));
+	    create_tree(ctx, node->children, js_eval2(ctx, "document.body;"), 0);
+	    break;
 	}
     }
 
-
-    /* free the document */
     xmlFreeDoc(doc);
-
-    /*
-     *Free the global variables that may
-     *have been allocated by the parser.
-     */
     xmlCleanupParser();
 
     return 0;
