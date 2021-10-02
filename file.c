@@ -3888,7 +3888,7 @@ Str
 process_button(struct parsed_tag *tag)
 {
     Str tmp = NULL;
-    char *p, *q, *r, *qq = "", *onclick;
+    char *p, *q, *r, *qq = "", *onclick, *id;
     int qlen, v;
 
     if (cur_form_id < 0) {
@@ -3904,6 +3904,8 @@ process_button(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_VALUE, &q);
     r = "";
     parsedtag_get_value(tag, ATTR_NAME, &r);
+    id = NULL;
+    parsedtag_get_value(tag, ATTR_ID, &id);
     onclick = NULL;
     parsedtag_get_value(tag, ATTR_ONCLICK, &onclick);
 
@@ -3943,12 +3945,13 @@ process_button(struct parsed_tag *tag)
                        "name=\"%s\" value=\"%s\"",
                        cur_hseq++, cur_form_id, html_quote(p),
                        html_quote(r), qq));
-
-    if (onclick) {
-	Strcat(tmp, Sprintf(" onclick=\"%s\">", onclick));
-    } else {
-	Strcat_charp(tmp, ">");
+    if (id) {
+	Strcat(tmp, Sprintf(" id=\"%s\"", id));
     }
+    if (onclick) {
+	Strcat(tmp, Sprintf(" onclick=\"%s\"", onclick));
+    }
+    Strcat_charp(tmp, ">");
 
     return tmp;
 }
@@ -4243,7 +4246,11 @@ feed_textarea(char *str)
 
 #ifdef USE_SCRIPT
 static Str
+#ifdef USE_M17N
+load_script_src(char *url, ParsedURL *baseURL, wc_ces charset)
+#else
 load_script_src(char *url, ParsedURL *baseURL)
+#endif
 {
     FILE *f;
     char *file;
@@ -4280,16 +4287,14 @@ load_script_src(char *url, ParsedURL *baseURL)
 	}
 #endif
 
-#if 1
+#ifdef USE_M17N
 	UseContentCharset = TRUE;
 	WcOption.auto_detect = WC_OPT_DETECT_ON;
 	/*
 	 * http://www9.plala.or.jp/oyoyon/html/ (SHIFT_JIS)
 	 * -> ../style/main.js (SHIFT_JIS)
 	 */
-	if (CurrentTab && Currentbuf) {
-	    DocumentCharset = Currentbuf->document_charset;
-	}
+	DocumentCharset = charset;
 #endif
 	AutoUncompress = TRUE;
 	b = loadGeneralFile(parsedURL2Str(&u)->ptr, cur_baseURL, NULL, RG_SCRIPT, NULL);
@@ -4297,7 +4302,7 @@ load_script_src(char *url, ParsedURL *baseURL)
 	    if (b->real_type) {
 		f = fopen(file, "w");
 		if (f) {
-#if 1
+#ifdef USE_M17N
 		    /* Save as UTF-8 format */
 		    DisplayCharset = WC_CES_UTF_8;
 #endif
@@ -4392,10 +4397,18 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
 }
 
 static char *
+#ifdef USE_M17N
+get_script_str(Script *script, ParsedURL *baseURL, wc_ces charset)
+#else
 get_script_str(Script *script, ParsedURL *baseURL)
+#endif
 {
     if (script->src != NULL) {
+#ifdef USE_M17N
+	Str str = load_script_src(script->src, baseURL, charset);
+#else
 	Str str = load_script_src(script->src, baseURL);
+#endif
 	if (str != NULL) {
 	    if (script->str != NULL) {
 		Strcat(script->str, str);
@@ -4427,8 +4440,14 @@ eval_script_intern(Buffer *buf)
 	Str tmp;
 	char *orig_target;
 
+#ifdef USE_M17N
+	p = get_script_str(script,
+			   buf->currentURL.scheme == SCM_UNKNOWN ? NULL : &buf->currentURL,
+			   buf->document_charset);
+#else
 	p = get_script_str(script,
 			   buf->currentURL.scheme == SCM_UNKNOWN ? NULL : &buf->currentURL);
+#endif
 	if (p == NULL) {
 	    continue;
 	}
@@ -4476,6 +4495,8 @@ process_n_script(struct html_feed_environ *h_env)
     if (h_env != NULL && h_env->scripts != NULL) {
 	Buffer *buf = newBuffer(INIT_BUFFER_WIDTH);
 	buf->scripts = h_env->scripts;
+	buf->sourcefile = h_env->sourcefile;
+	buf->document_charset = h_env->document_charset;
 	ret = eval_script_intern(buf);
 	h_env->scripts = NULL;
     }
@@ -7778,6 +7799,8 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
     init_henv(&htmlenv1, &obuf, envs, MAX_ENV_LEVEL, NULL, newBuf->width, 0);
 
 #ifdef USE_SCRIPT
+    htmlenv1.sourcefile = newBuf->sourcefile;
+    htmlenv1.document_charset = newBuf->document_charset;
     htmlenv1.scripts = NULL;
 #endif
     if (w3m_halfdump)

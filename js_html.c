@@ -3,9 +3,10 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
-#define NUM_TAGNAMES 2
+#define NUM_TAGNAMES 3
 #define TN_FORM 0
 #define TN_IMG 1
+#define TN_SCRIPT 2
 
 #if 1
 #define EVAL_FLAG 0
@@ -21,6 +22,7 @@ JSClassID HistoryClassID;
 JSClassID HTMLFormElementClassID;
 JSClassID HTMLElementClassID;
 static JSClassID HTMLImageElementClassID;
+static JSClassID HTMLScriptElementClassID;
 static JSClassID ElementClassID;
 static JSClassID SVGElementClassID;
 
@@ -673,7 +675,6 @@ init_children(JSContext *ctx, JSValue obj, const char *tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "children", JS_DupValue(ctx, children));
 
-
     if (strcasecmp(tagname, "form") == 0) {
 	JS_SetPropertyStr(ctx, obj, "elements", JS_DupValue(ctx, children));
     } else if (strcasecmp(tagname, "select") == 0) {
@@ -691,8 +692,6 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 
     /* Node */
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "nextSibling", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "previousSibling", JS_NULL);
     if (strcasecmp(str, "#text") == 0) {
 	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
     } else if (strcasecmp(str, "#comment") == 0) {
@@ -800,11 +799,32 @@ html_image_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCon
 
     tagnames = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(tagnames[TN_IMG])) {
-	tagnames[TN_FORM] = JS_NewString(ctx, "img");
+	tagnames[TN_IMG] = JS_NewString(ctx, "img");
     }
 
     obj = JS_NewObjectClass(ctx, HTMLImageElementClassID);
     set_element_property(ctx, obj, tagnames[TN_IMG]);
+
+    return obj;
+}
+
+static const JSClassDef HTMLScriptElementClass = {
+    "HTMLScriptElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+html_script_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+    JSValue *tagnames;
+
+    tagnames = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(tagnames[TN_SCRIPT])) {
+	tagnames[TN_SCRIPT] = JS_NewString(ctx, "script");
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLScriptElementClassID);
+    set_element_property(ctx, obj, tagnames[TN_SCRIPT]);
 
     return obj;
 }
@@ -916,7 +936,7 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 	return JS_EXCEPTION;
     }
 
-    children = JS_GetPropertyStr(ctx, jsThis, "children");
+    children = JS_GetPropertyStr(ctx, jsThis, "childNodes");
     prop = JS_GetPropertyStr(ctx, children, "indexOf");
     argv2[0] = JS_Call(ctx, prop, children, 1, argv);
     JS_FreeValue(ctx, prop);
@@ -936,13 +956,30 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 static JSValue
 element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    JSValue children, prop, idx, ret;
+    int i;
+
     if (argc < 2) {
 	return JS_EXCEPTION;
     }
 
-    /* XXX Not implemented. */
+    children = JS_GetPropertyStr(ctx, jsThis, "childNodes");
+    prop = JS_GetPropertyStr(ctx, children, "indexOf");
+    idx = JS_Call(ctx, prop, children, 1, argv + 1);
+    JS_FreeValue(ctx, prop);
+    JS_ToInt32(ctx, &i, idx);
+    JS_FreeValue(ctx, idx);
 
-    return JS_DupValue(ctx, argv[1]); /* XXX segfault without this by returining argv[1]. */
+    if (i >= 0) {
+	ret = JS_DupValue(ctx, argv[1]);
+	JS_SetPropertyUint32(ctx, children, i, JS_DupValue(ctx, argv[0]));
+    } else {
+	ret = JS_UNDEFINED;
+    }
+
+    JS_FreeValue(ctx, children);
+
+    return ret;
 }
 
 static JSValue
@@ -1045,8 +1082,8 @@ static JSValue
 element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 {
     char script[] =
-	"if (this.children.length > 0) {"
-	"  this.children[0];"
+	"if (this.childNodes.length > 0) {"
+	"  this.childNodes[0];"
 	"} else {"
 	"  null;"
 	"}";
@@ -1059,11 +1096,45 @@ static JSValue
 element_last_child_get(JSContext *ctx, JSValueConst jsThis)
 {
     char script[] =
-	"if (this.children.length > 0) {"
-	"  this.children[this.children.length - 1];"
+	"if (this.childNodes.length > 0) {"
+	"  this.childNodes[this.childNodes.length - 1];"
 	"} else {"
 	"  null;"
 	"}";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] =
+	"if (this.parentNode && this.parentNode.childNodes.length >= 2) {"
+	"  for (let i = this.parentNode.childNodes.length - 2; i >= 0; i--) {"
+	"    if (this.parentNode.childNodes[i] == this) {"
+	"      this.parentNode.childNodes[i + 1];"
+	"    }"
+	"  }"
+	"}"
+	"null;";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] =
+	"if (this.parentNode) {"
+	"  for (let i = 1; i < this.parentNode.childNodes.length; i++) {"
+	"    if (this.parentNode.childNodes[i] == this) {"
+	"      this.parentNode.childNodes[i - 1];"
+	"    }"
+	"  }"
+	"}"
+	"null;";
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
@@ -1234,7 +1305,7 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 
     str = JS_ToCString(ctx, val);
     if ((p = strchr(str, '<')) && strchr(p + 1, '>')) {
-	xmlDoc *doc = htmlReadMemory(str, strlen(str), "utf-8", "",
+	xmlDoc *doc = htmlReadMemory(str, strlen(str), "", "utf-8",
 				     HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
 				     HTML_PARSE_NOWARNING | HTML_PARSE_NOIMPLIED);
 	create_tree(ctx, xmlDocGetRootElement(doc), JS_DupValue(ctx, jsThis), 1);
@@ -1290,6 +1361,8 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
     JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
     JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
+    JS_CGETSET_DEF("nextSibling", element_next_sibling_get, NULL),
+    JS_CGETSET_DEF("previousSibling", element_previous_sibling_get, NULL),
     JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
     JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
     JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
@@ -1700,7 +1773,7 @@ log_to_file(JSContext *ctx, const char *head, int argc, JSValueConst *argv)
 {
     FILE *fp;
 
-    if ((fp = fopen("w3mlog.txt", "a")) != NULL) {
+    if ((fp = fopen("scriptlog.txt", "a")) != NULL) {
 	int i;
 
 	fwrite(head, strlen(head), 1, fp);
@@ -1861,6 +1934,10 @@ js_html_init(void)
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLImageElementClass,
 		 html_image_element_new);
 
+    create_class(ctx, gl, &HTMLScriptElementClassID, "HTMLScriptElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLScriptElementClass,
+		 html_script_element_new);
+
     create_class(ctx, gl, &SVGElementClassID, "SVGElement", ElementFuncs,
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &SVGElementClass,
 		 svg_element_new);
@@ -1983,7 +2060,10 @@ js_get_function(JSContext *ctx, char *script) {
     while (*p == ' ' || *p == '\t') p++;
     if (strncmp(p, "function", 8) == 0) {
 	p += 8;
-	while (*p == ' ' || *p == '\t') p++;
+	while (*p == '\t' || *p == ' ') p++;
+	while (('a' <= *p && *p <= 'z') || ('A' <= *p && *p <= 'Z') ||
+	       ('0' <= *p && *p <= '9') || *p == '_' || *p == '$') p++;
+	while (*p == '\t' || *p == ' ') p++;
 	if (strncmp(p, "()", 2) == 0) {
 	    str = Strnew_charp(p + 2);
 	    goto end;
@@ -2058,21 +2138,31 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
     for (; node; node = node->next) {
 	JSValue jsnode;
 
-	if (node->type == XML_ELEMENT_NODE &&
-	    (innerhtml ||
-	     (strcasecmp((char*)node->name, "form") != 0 &&
-	      strcasecmp((char*)node->name, "select") != 0 &&
-	      strcasecmp((char*)node->name, "input") != 0 &&
-	      strcasecmp((char*)node->name, "textarea") != 0))) {
-	    JSValue arg = JS_NewString(ctx, (char*)node->name);
+	if (node->type == XML_ELEMENT_NODE) {
 	    xmlAttr *attr;
+
+	    if (!innerhtml &&
+		(strcasecmp((char*)node->name, "form") == 0 ||
+		 strcasecmp((char*)node->name, "select") == 0 ||
+		 strcasecmp((char*)node->name, "input") == 0 ||
+		 strcasecmp((char*)node->name, "textarea") == 0)) {
+		jsnode = JS_DupValue(ctx, jsparent); /* XXX should be document.forms[n] etc */
+		goto child_tree;
+	    }
 
 #ifdef DOM_DEBUG
 	    fprintf(fp, "element %s ", node->name);
 #endif
 
-	    jsnode = html_element_new(ctx, jsparent, 1, &arg);
-	    JS_FreeValue(ctx, arg);
+	    if (strcasecmp((char*)node->name, "script") == 0) {
+		jsnode = html_script_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "img") == 0) {
+		jsnode = html_image_element_new(ctx, jsparent, 0, NULL);
+	    } else {
+		JSValue arg = JS_NewString(ctx, (char*)node->name);
+		jsnode = html_element_new(ctx, jsparent, 1, &arg);
+		JS_FreeValue(ctx, arg);
+	    }
 
 	    for (attr = node->properties; attr != NULL; attr = attr->next) {
 		xmlNode *n;
@@ -2121,6 +2211,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 #ifdef DOM_DEBUG
 	fclose(fp);
 #endif
+    child_tree:
 	create_tree(ctx, node->children, jsnode, innerhtml);
 #ifdef DOM_DEBUG
 	fp = fopen("domlog.txt", "a");
@@ -2135,17 +2226,21 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 }
 
 int
-create_dom_tree(JSContext *ctx, char *filename)
+create_dom_tree(JSContext *ctx, char *filename, char *charset)
 {
     URLFile uf;
     xmlDoc *doc;
     xmlNode *node;
 
     if (filename == NULL) {
-	return 0;
+	goto error;
     }
 
     LIBXML_TEST_VERSION;
+
+    if (strcasecmp(charset, "US-ASCII") == 0) {
+	charset = NULL;
+    }
 
     if (examineFile2(filename, &uf)) {
 	Str str = Strnew();
@@ -2158,17 +2253,16 @@ create_dom_tree(JSContext *ctx, char *filename)
 	    Strcat(str, s);
 	}
 
-	doc = htmlReadMemory(str->ptr, str->length, "utf-8", filename,
+	doc = htmlReadMemory(str->ptr, str->length, filename, charset,
 			     HTML_PARSE_RECOVER|HTML_PARSE_NOERROR|HTML_PARSE_NOWARNING);
     } else {
 	/* parse the file and get the DOM */
-	doc = htmlReadFile(filename, "utf-8",
+	doc = htmlReadFile(filename, charset,
 			   HTML_PARSE_RECOVER|HTML_PARSE_NOERROR|HTML_PARSE_NOWARNING);
     }
 
     if (doc == NULL) {
-        fprintf(stderr, "error: could not parse file %s\n", filename);
-	return 0;
+	goto error;
     }
 
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
@@ -2181,7 +2275,17 @@ create_dom_tree(JSContext *ctx, char *filename)
     xmlFreeDoc(doc);
     xmlCleanupParser();
 
-    return 0;
+    return 1;
+
+error:
+    {
+	FILE *fp;
+	if ((fp = fopen("scriptlog.txt", "a")) != NULL) {
+	    fprintf(fp, "ERROR: could not parse file %s\n", filename);
+	    fclose(fp);
+	}
+	return 0;
+    }
 }
 #endif /* LIBXML_TREE_ENABLED */
 

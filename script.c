@@ -221,6 +221,11 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = true;", i, j)->ptr);
 	else
 	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
+
+	js_eval(interp, Sprintf("document.forms[%d].elements[%d].click ="
+				"function() {"
+				"  this.checked = true;"
+				"};", i, j)->ptr);
 	break;
     case FORM_INPUT_SUBMIT:
 	t = "submit"; break;
@@ -398,6 +403,10 @@ script_buf2js(Buffer *buf, void *interp)
 		"  tagname = tagname.toLowerCase();"
 		"  if (tagname === \"form\") {"
 		"    return new HTMLFormElement();"
+		"  } else if (tagname === \"img\") {"
+		"    return new HTMLImageElement();"
+		"  } else if (tagname === \"script\") {"
+		"    return new HTMLScriptElement();"
 		"  } else {"
 		"    return new HTMLElement(tagname);"
 		"  }"
@@ -405,7 +414,7 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"/* see element_text_content_set() in js_html.c */"
 	        "document.createTextNode = function(text) {"
-		"  let element = new HTMElement(\"#text\");"
+		"  let element = new HTMLElement(\"#text\");"
 		"  element.nodeValue = text;"
 		"  return element;"
 		"};"
@@ -431,6 +440,9 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"document.getElementById = function(id) {"
 		"  let hit = w3m_getElementById(document, id);"
+#ifdef USE_LIBXML2
+		"  return hit;"
+#else
 		"  if (hit != null) {"
 		"    return hit;"
 		"  }"
@@ -438,6 +450,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  element.id = id;"
 		"  element.value = \"\";"
 		"  return document.body.appendChild(element);"
+#endif
 		"};"
 		""
 		"function w3m_getElementsByTagName(element, name, elements) {"
@@ -445,7 +458,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"    if (name === \"*\" || element.children[i].tagName.toLowerCase() === name) {"
 		"      elements.push(element.children[i]);"
 		"    }"
-		"    w3m_getElementsByName(element.children[i], name, elements);"
+		"    w3m_getElementsByTagName(element.children[i], name, elements);"
 		"  }"
 		"}"
 		""
@@ -455,15 +468,21 @@ script_buf2js(Buffer *buf, void *interp)
 		"    return document.forms;"
 		"  } else {"
 		"    let elements = new HTMLCollection();"
-		"    w3m_getElementsByTagName(document, name, elements);"
-		"    if (elements.length == 0) {"
-		"      if (name === \"*\") {"
-		"        name = \"span\";"
+		"    if (name === \"html\") {"
+		"      elements.push(document.documentElement);"
+		"    } else {"
+		"      w3m_getElementsByTagName(document, name, elements);"
+#ifndef USE_LIBXML2
+		"      if (elements.length == 0) {"
+		"        if (name === \"*\") {"
+		"          name = \"span\";"
+		"        }"
+		"        let element = new HTMLElement(name);"
+		"        element.value = \"\";"
+		"        document.body.appendChild(element);"
+		"        elements.push(element);"
 		"      }"
-		"      let element = new HTMLElement(name);"
-		"      element.value = \"\";"
-		"      document.body.appendChild(element);"
-		"      elements.push(element);"
+#endif
 		"    }"
 		"    return elements;"
 		"  }"
@@ -481,6 +500,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"document.getElementsByName = function(name) {"
 		"  let elements = new HTMLCollection();"
 		"  w3m_getElementsByName(document, name, elements);"
+#ifndef USE_LIBXML2
 		"  if (elements.length == 0) {"
 		"    let element = new HTMLElement(\"span\");"
 		"    element.name = name;"
@@ -488,6 +508,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"    document.body.appendChild(element);"
 		"    elements.push(element);"
 		"  }"
+#endif
 		"  return elements;"
 		"};"
 		""
@@ -503,6 +524,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"document.getElementsByClassName = function(name) {"
 		"  let elements = new HTMLCollection();"
 		"  w3m_getElementsByClassName(document, name, elements);"
+#ifndef USE_LIBXML2
 		"  if (elements.length == 0) {"
 		"    let element = new HTMLElement(\"span\");"
 		"    element.className = name;"
@@ -510,6 +532,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"    document.body.appendChild(element);"
 		"    elements.push(element);"
 		"  }"
+#endif
 		"  return elements;"
 		"};"
 		""
@@ -544,11 +567,20 @@ script_buf2js(Buffer *buf, void *interp)
 		"    return document.getElementsByClassName(array[1].substring(1));"
 		"  } else {"
 		"    let elements = new NodeList();"
+#ifdef USE_LIBXML2
+		"    if (array[2] != null) {"
+		"      let element = document.getElementById(array[2].substring(1));"
+		"      if (element != null) {"
+		"        elements.push(element);"
+		"      }"
+		"    }"
+#else
 		"    if (array[2] != null) {"
 		"      elements.push(document.getElementById(array[2].substring(1)));"
 		"    } else {"
 		"      elements.push(document.body.appendChild(new HTMLElement(\"span\")));"
 		"    }"
+#endif
 		"    return elements;"
 		"  }"
 		"};"
@@ -563,8 +595,12 @@ script_buf2js(Buffer *buf, void *interp)
 		"  } else if (array[2] != null) {"
 		"    element = document.getElementById(array[2]);"
 		"  } else {"
+#ifdef USE_LIBXML2
+		"    return null;"
+#else
 		"    element = document.body.appendChild(new HTMLElement(\"span\"));"
 		"    element.value = \"\";"
+#endif
 		"  }"
 		"  return element;"
 		"};"
@@ -649,6 +685,8 @@ script_buf2js(Buffer *buf, void *interp)
 		"  }"
 		"  return str;"
 		"}");
+	js_eval(interp, Sprintf("document.characterSet = \"%s\";",
+				wc_ces_to_charset(buf->document_charset))->ptr);
     } else {
 	js_eval(interp, "w3m_initDocumentTree(document);");
     }
@@ -694,6 +732,7 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
     js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
+#ifndef USE_LIBXML2
     if (buf->scripts != NULL) {
 	ListItem *l;
 
@@ -701,12 +740,13 @@ script_buf2js(Buffer *buf, void *interp)
 	for (l = buf->scripts->first; l != NULL; l = l->next) {
 	    js_eval(interp,
 		    "{"
-		    "  let element = new HTMLElement(\"script\");"
+		    "  let element = new HTMLScriptElement();"
 		    "  document.scripts.push(element);"
 		    "  document.body.appendChild(element);"
 		    "}");
 	}
     }
+#endif
 
     update_forms(buf, interp);
 }
@@ -782,17 +822,17 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onkeyup;", i, j)->ptr);
     if (str != NULL) {
-	fi->onkeyup = u2is(str);
+	fi->onkeyup = str;
     }
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onclick;", i, j)->ptr);
     if (str != NULL) {
-	fi->onclick = u2is(str);
+	fi->onclick = str;
     }
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onchange;", i, j)->ptr);
     if (str != NULL) {
-	fi->onchange = u2is(str);
+	fi->onchange = str;
     }
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex;", i, j)->ptr);
@@ -1115,12 +1155,12 @@ script_js2buf(Buffer *buf, void *interp)
 
 		str = js_get_function(interp, Sprintf("document.forms[%d].onsubmit;", i)->ptr);
 		if (str != NULL) {
-		    fl->onsubmit = u2is(str)->ptr;
+		    fl->onsubmit = str->ptr;
 		}
 
 		str = js_get_function(interp, Sprintf("document.forms[%d].onreset;", i)->ptr);
 		if (str != NULL) {
-		    fl->onreset = u2is(str)->ptr;
+		    fl->onreset = str->ptr;
 		}
 
 		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
@@ -1251,7 +1291,7 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
     if (buf2js) {
 	if (buf2js > 0) {
 	    script_buf2js(buf, interp);
-	    create_dom_tree(interp, buf->sourcefile);
+	    create_dom_tree(interp, buf->sourcefile, wc_ces_to_charset(buf->document_charset));
 	} else {
 	    update_forms(buf, interp);
 	}

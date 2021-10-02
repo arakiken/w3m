@@ -757,6 +757,10 @@ struct html_feed_environ {
     int blank_lines;
 #ifdef USE_SCRIPT
     GeneralList *scripts;
+    char *sourcefile;
+#ifdef USE_M17N
+    wc_ces document_charset;
+#endif
 #endif
 };
 

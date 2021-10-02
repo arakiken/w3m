@@ -81,7 +81,7 @@ extern int js_get_int(JSContext *ctx, int *i, JSValue value);
 extern int js_is_true(JSContext *ctx, JSValue value);
 
 #ifdef USE_LIBXML2
-int create_dom_tree(JSContext *ctx, char *filename);
+int create_dom_tree(JSContext *ctx, char *filename, char *charset);
 #else
 #define create_dom_tree(a, b) (0)
 #endif
