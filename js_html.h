@@ -71,8 +71,9 @@ typedef struct _HTMLFormElementState {
 extern JSContext *js_html_init(void);
 extern void js_html_final(JSContext *ctx);
 
-extern void js_eval(JSContext *interp, char *str);
-extern JSValue js_eval2(JSContext *interp, char *str);
+extern void js_eval(JSContext *ctx, char *script);
+extern JSValue js_eval2(JSContext *ctx, char *script);
+extern JSValue js_eval2_this(JSContext *ctx, int formidx, char *script);
 
 extern char *js_get_cstr(JSContext *ctx, JSValue value);
 extern Str js_get_str(JSContext *ctx, JSValue value);

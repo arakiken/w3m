@@ -1278,9 +1278,10 @@ onload(void *interp)
 }
 
 static int
-script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
+script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, Str *output)
 {
     void *interp;
+    int formidx = -1;
     JSValue ret;
     char *p;
 
@@ -1311,7 +1312,27 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, Str *output)
 	}
     }
 
-    ret = js_eval2(interp, script);
+    if (fl) {
+	int i;
+	FormList *l;
+
+	for (i = 0, l = buf->formlist; l != NULL; i++, l = l->next) {
+	    if (fl == l) {
+		formidx = i;
+		break;
+	    }
+	}
+    }
+
+    if (formidx == -1) {
+	ret = js_eval2(interp, script);
+    } else {
+	/*
+	 * Support 'this.form'.
+	 * (http://www9.plala.or.jp/oyoyon/html/script/change_misc.html)
+	 */
+	ret = js_eval2_this(interp, formidx, script);
+    }
     onload(interp);
 
     if (js2buf) {
@@ -1339,7 +1360,8 @@ script_js_close(Buffer *buf)
 #endif
 
 int
-script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, Str *output)
+script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, FormList *fl,
+	    Str *output)
 {
     if (buf == NULL) {
 	return 0;
@@ -1358,7 +1380,7 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, Str *
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
 	! strcasecmp(lang, "jscript"))
-	return script_js_eval(buf, script, buf2js, js2buf, output);
+	return script_js_eval(buf, script, buf2js, js2buf, fl, output);
     else
 #endif
 	return 0;

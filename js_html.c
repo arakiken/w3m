@@ -655,6 +655,40 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CGETSET_DEF("hash", location_hash_get, location_hash_set),
 };
 
+static JSValue
+dom_node_list_add(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+dom_node_list_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+dom_node_list_toggle(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+dom_node_list_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_FALSE;
+}
+
+static struct {
+    char *name;
+    JSCFunction *func;
+} DomNodeListFuncs[] = {
+    { "add", dom_node_list_add } ,
+    { "remove", dom_node_list_remove } ,
+    { "toggle", dom_node_list_toggle } ,
+    { "contains", dom_node_list_contains } ,
+};
+
 static void
 html_form_element_final(JSRuntime *rt, JSValue val) {
     GC_FREE(JS_GetOpaque(val, HTMLFormElementClassID));
@@ -687,6 +721,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
     const char *str = JS_ToCString(ctx, tagname);
     JSValue style;
+    JSValue classlist;
+    int i;
 
     init_children(ctx, obj, str);
 
@@ -705,6 +741,14 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
+
+    classlist = JS_NewObject(ctx);
+    for (i = 0; i < sizeof(DomNodeListFuncs) / sizeof(DomNodeListFuncs[0]); i++) {
+	JS_SetPropertyStr(ctx, classlist, DomNodeListFuncs[i].name,
+			  JS_NewCFunction(ctx, DomNodeListFuncs[i].func,
+					  DomNodeListFuncs[i].name, 1));
+    }
+    JS_SetPropertyStr(ctx, obj, "classList", classlist);
 
     /* HTMLElement */
     style = JS_NewObject(ctx);
@@ -2010,6 +2054,26 @@ JSValue
 js_eval2(JSContext *ctx, char *script) {
     return backtrace(ctx, script,
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
+}
+
+JSValue
+js_eval2_this(JSContext *ctx, int formidx, char *script) {
+    Str str = Sprintf("document.forms[%d];", formidx);
+    JSValue form = JS_Eval(ctx, str->ptr, str->length, "<input>", EVAL_FLAG);
+
+    if (JS_IsUndefined(form)) {
+	return js_eval2(ctx, script);
+    } else {
+	JSValue jsThis = JS_NewObject(ctx);
+	JSValue ret;
+
+	JS_SetPropertyStr(ctx, jsThis, "form", form);
+	ret = backtrace(ctx, script,
+			JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+	JS_FreeValue(ctx, jsThis);
+
+	return ret;
+    }
 }
 
 char *

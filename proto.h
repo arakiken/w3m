@@ -245,7 +245,8 @@ extern void feed_textarea(char *str);
 extern void process_script(struct parsed_tag *tag, struct html_feed_environ *h_env);
 extern Str process_n_script(struct html_feed_environ *h_env);
 extern void feed_script(char *str, struct html_feed_environ *h_env);
-extern int script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, Str *output);
+extern int script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf,
+		       FormList *fl, Str *output);
 extern void script_close(Buffer *buf);
 extern void process_html_str(Buffer *buf, char *html_str);
 extern void jWindowOpen(Buffer *buf, char *url, char *target);
