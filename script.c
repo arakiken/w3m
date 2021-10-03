@@ -399,6 +399,13 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return doc;"
 		"};"
 		""
+		"document.implementation = new Object();"
+		"document.implementation.createHTMLDocument = function() {"
+		"  let doc = Object.assign(new Document(), document);"
+		"  w3m_initDocumentTree(doc);"
+		"  return doc;"
+		"};"
+		""
 	        "document.createElement = function(tagname) {"
 		"  tagname = tagname.toLowerCase();"
 		"  if (tagname === \"form\") {"
@@ -732,11 +739,11 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
     js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
+    js_eval(interp, "document.scripts = new HTMLCollection();");
 #ifndef USE_LIBXML2
     if (buf->scripts != NULL) {
 	ListItem *l;
 
-	js_eval(interp, "document.scripts = new HTMLCollection();");
 	for (l = buf->scripts->first; l != NULL; l = l->next) {
 	    js_eval(interp,
 		    "{"

@@ -2155,7 +2155,15 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 #endif
 
 	    if (strcasecmp((char*)node->name, "script") == 0) {
+		JSValue scripts;
+		JSValue prop;
+
 		jsnode = html_script_element_new(ctx, jsparent, 0, NULL);
+		scripts = js_eval2(ctx, "document.scripts;");
+		prop = JS_GetPropertyStr(ctx, scripts, "push");
+		JS_FreeValue(ctx, JS_Call(ctx, prop, scripts, 1, &jsnode));
+		JS_FreeValue(ctx, prop);
+		JS_FreeValue(ctx, scripts);
 	    } else if (strcasecmp((char*)node->name, "img") == 0) {
 		jsnode = html_image_element_new(ctx, jsparent, 0, NULL);
 	    } else {
@@ -2266,10 +2274,18 @@ create_dom_tree(JSContext *ctx, char *filename, char *charset)
     }
 
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
-	if (strcmp((char*)node->name, "body") == 0) {
+	if (strcmp((char*)node->name, "head") == 0) {
+	    create_tree(ctx, node->children, js_eval2(ctx, "document.head;"), 0);
+	} else if (strcmp((char*)node->name, "body") == 0) {
 	    create_tree(ctx, node->children, js_eval2(ctx, "document.body;"), 0);
-	    break;
 	}
+#ifdef DOM_DEBUG
+	else {
+	    FILE *fp = fopen("domlog.txt", "a");
+	    fprintf(fp, "orphan element %s\n", node->name);
+	    fclose(fp);
+	}
+#endif
     }
 
     xmlFreeDoc(doc);

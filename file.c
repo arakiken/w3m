@@ -66,6 +66,7 @@ static Str cur_option;
 static Str cur_option_value;
 static Str cur_option_label;
 static int cur_option_selected;
+static char *cur_option_id;
 static int cur_status;
 #ifdef MENU_SELECT
 /* menu based <select>  */
@@ -82,6 +83,7 @@ static int cur_textarea_rows;
 static int cur_textarea_readonly;
 static int n_textarea;
 static int ignore_nl_textarea;
+static char *cur_textarea_id;
 int max_textarea = MAX_TEXTAREA;
 
 static int http_response_code;
@@ -3983,12 +3985,16 @@ process_select(struct parsed_tag *tag)
 
 #ifdef MENU_SELECT
     if (!select_is_multiple) {
+	char *id = NULL;
 	select_str = Strnew_charp("<pre_int>");
 	if (displayLinkNumber)
 	    Strcat(select_str, getLinkNumberStr(0));
 	Strcat(select_str, Sprintf("[<input_alt hseq=\"%d\" "
 			     "fid=\"%d\" type=select name=\"%s\" selectnumber=%d",
 			     cur_hseq++, cur_form_id, html_quote(p), n_select));
+	if (parsedtag_get_value(tag, ATTR_ID, &id)) {
+	    Strcat(select_str, Sprintf(" id=\"%s\"", id));
+	}
 	Strcat_charp(select_str, ">");
 	if (n_select == max_select) {
 	    max_select *= 2;
@@ -4063,6 +4069,10 @@ feed_select(char *str)
 		    cur_option_label = Strnew_charp(q);
 		else
 		    cur_option_label = NULL;
+		if (parsedtag_get_value(tag, ATTR_ID, &q))
+		    cur_option_id = q;
+		else
+		    cur_option_id = NULL;
 		cur_option_selected = parsedtag_exists(tag, ATTR_SELECTED);
 		prev_spaces = -1;
 		break;
@@ -4131,6 +4141,8 @@ process_option(void)
 			       select_is_multiple ? "checkbox" : "radio",
 			       html_quote(cur_select->ptr),
 			       html_quote(cur_option_value->ptr)));
+    if (cur_option_id)
+	Strcat(select_str, Sprintf(" id=\"%s\"", cur_option_id));
     if (cur_option_selected)
 	Strcat_charp(select_str, " checked>*</input_alt>");
     else
@@ -4183,6 +4195,8 @@ process_textarea(struct parsed_tag *tag, int width)
 	textarea_str = New_Reuse(Str, textarea_str, max_textarea);
     }
     textarea_str[n_textarea] = Strnew();
+    cur_textarea_id = NULL;
+    parsedtag_get_value(tag, ATTR_ID, &cur_textarea_id);
     ignore_nl_textarea = TRUE;
 
     return tmp;
@@ -4205,6 +4219,8 @@ process_n_textarea(void)
 			html_quote(cur_textarea->ptr),
 			cur_textarea_size, cur_textarea_rows,
 			cur_textarea_rows - 1, n_textarea));
+    if (cur_textarea_id)
+	Strcat(tmp, Sprintf(" id=\"%s\"", cur_textarea_id));
     if (cur_textarea_readonly)
 	Strcat_charp(tmp, " readonly");
     Strcat_charp(tmp, "><u>");
@@ -4503,6 +4519,37 @@ process_n_script(struct html_feed_environ *h_env)
     return ret;
 }
 
+#if 1
+/*
+ * let str = "aiu
+ * eo";
+ * -> let str = "aiueo";
+ * (https://www.javatpoint.com/oprweb/test.jsp?filename=example1js)
+ */
+static char*
+remove_cr_nl(char *str)
+{
+    char *p1 = str;
+    char *p2 = str;
+
+    if (*p1 == '\0') {
+	return str;
+    }
+
+    do {
+	if (*p1 != '\n' && *p1 != '\r') {
+	    *(p2++) = *p1;
+	}
+    } while (*(++p1));
+
+    *p2 = '\0';
+
+    return str;
+}
+#else
+#define remove_cr_nl(str) (str)
+#endif
+
 void
 feed_script(char *str, struct html_feed_environ *h_env)
 {
@@ -4513,7 +4560,7 @@ feed_script(char *str, struct html_feed_environ *h_env)
 	    script->str = Strnew();
 	}
 	Strcat(script->str,
-	       wc_Str_conv(Strnew_charp(str), InnerCharset, WC_CES_UTF_8));
+	       wc_Str_conv(Strnew_charp(remove_cr_nl(str)), InnerCharset, WC_CES_UTF_8));
     }
 }
 
