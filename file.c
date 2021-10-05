@@ -4412,6 +4412,65 @@ process_script(struct parsed_tag *tag, struct html_feed_environ *h_env)
     }
 }
 
+#if 1
+/*
+ * let str = "aiu
+ * eo";
+ * -> let str = "aiueo";
+ * (https://www.javatpoint.com/oprweb/test.jsp?filename=example1js)
+ */
+static char*
+remove_cr_nl(char *str)
+{
+    char *p1 = str;
+    char *p2 = str;
+    int is_dq = 0;
+    int is_q = 0;
+
+    if (*p1 == '\0') {
+	return str;
+    }
+
+    FILE *fp = fopen("log.txt", "a");
+    fprintf(fp, "%s\n", str);
+    fclose(fp);
+
+    do {
+	if (*p1 == '\"') {
+	    if (*(p1 - 1) != '\\') {
+		if (is_dq) {
+		    is_dq = 0;
+		} else if (!is_q) {
+		    is_dq = 1;
+		}
+	    }
+	} else if (*p1 == '\'') {
+	    if (*(p1 - 1) != '\\') {
+		if (is_q) {
+		    is_q = 0;
+		} else if (!is_dq) {
+		    is_q = 1;
+		}
+	    }
+	}
+
+	if ((is_dq|is_q) == 0 || (*p1 != '\n' && *p1 != '\r')) {
+	    *(p2++) = *p1;
+	}
+    } while (*(++p1));
+
+    *p2 = '\0';
+
+    fp = fopen("log.txt", "a");
+    fprintf(fp, "-> %s\n", str);
+    fclose(fp);
+
+    return str;
+}
+#else
+#define remove_cr_nl(str) (str)
+#endif
+
 static char *
 #ifdef USE_M17N
 get_script_str(Script *script, ParsedURL *baseURL, wc_ces charset)
@@ -4425,21 +4484,20 @@ get_script_str(Script *script, ParsedURL *baseURL)
 #else
 	Str str = load_script_src(script->src, baseURL);
 #endif
+	script->src = NULL;
 	if (str != NULL) {
 	    if (script->str != NULL) {
 		Strcat(script->str, str);
 	    } else {
 		script->str = str;
 	    }
+	    return script->str->ptr;
 	}
-	script->src = NULL;
+    } else if (script->str != NULL) {
+	return remove_cr_nl(script->str->ptr);
     }
 
-    if (script->str != NULL) {
-	return script->str->ptr;
-    } else {
-	return NULL;
-    }
+    return NULL;
 }
 
 static Str
@@ -4519,57 +4577,6 @@ process_n_script(struct html_feed_environ *h_env)
     return ret;
 }
 
-#if 1
-/*
- * let str = "aiu
- * eo";
- * -> let str = "aiueo";
- * (https://www.javatpoint.com/oprweb/test.jsp?filename=example1js)
- */
-static char*
-remove_cr_nl(char *str)
-{
-    char *p1 = str;
-    char *p2 = str;
-    int is_dq = 0;
-    int is_q = 0;
-
-    if (*p1 == '\0') {
-	return str;
-    }
-
-    do {
-	if (*p1 == '\"') {
-	    if (*(p1 - 1) != '\\') {
-		if (is_dq) {
-		    is_dq = 0;
-		} else if (!is_q) {
-		    is_dq = 1;
-		}
-	    }
-	} else if (*p1 == '\'') {
-	    if (*(p1 - 1) != '\\') {
-		if (is_q) {
-		    is_q = 0;
-		} else if (!is_dq) {
-		    is_q = 1;
-		}
-	    }
-	}
-
-	if ((is_dq|is_q) == 0 || (*p1 != '\n' && *p1 != '\r')) {
-	    *(p2++) = *p1;
-	}
-    } while (*(++p1));
-
-    *p2 = '\0';
-
-    return str;
-}
-#else
-#define remove_cr_nl(str) (str)
-#endif
-
 void
 feed_script(char *str, struct html_feed_environ *h_env)
 {
@@ -4580,7 +4587,7 @@ feed_script(char *str, struct html_feed_environ *h_env)
 	    script->str = Strnew();
 	}
 	Strcat(script->str,
-	       wc_Str_conv(Strnew_charp(remove_cr_nl(str)), InnerCharset, WC_CES_UTF_8));
+	       wc_Str_conv(Strnew_charp(str), InnerCharset, WC_CES_UTF_8));
     }
 }
 

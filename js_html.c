@@ -658,25 +658,123 @@ static const JSCFunctionListEntry LocationFuncs[] = {
 static JSValue
 dom_node_list_add(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    const char *entry;
+    char *script;
+
+    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
+	return JS_UNDEFINED;
+    }
+
+    script = Sprintf("if (this.element.className) {"
+		     "  let array = this.element.className.split(\' \');"
+		     "  let i = 0;"
+		     "  for (; i < array.length; i++) {"
+		     "    if (array[i] === \"%s\") {"
+		     "      break;"
+		     "    }"
+		     "  }"
+		     "  if (i == array.length) {"
+		     "    array.push(\"%s\");"
+		     "    this.element.className = array.join(\" \");"
+		     "  }"
+		     "} else {"
+		     "  this.element.className = \"%s\";"
+		     "}", entry, entry, entry)->ptr;
+    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+
     return JS_UNDEFINED;
 }
 
 static JSValue
 dom_node_list_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    const char *entry;
+    char *script;
+
+    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
+	return JS_UNDEFINED;
+    }
+
+    script = Sprintf("if (this.element.className) {"
+		     "  let array = this.element.className.split(\' \');"
+		     "  for (let i = 0; i < array.length; i++) {"
+		     "    if (array[i] === \"%s\") {"
+		     "      if (array.length == 1) {"
+		     "        this.element.className = undefined;"
+		     "      } else {"
+		     "        array.splice(i, 1);"
+		     "        this.element.className = array.join(\" \");"
+		     "      }"
+		     "      break;"
+		     "    }"
+		     "  }"
+		     "}", entry)->ptr;
+    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+
     return JS_UNDEFINED;
 }
 
 static JSValue
 dom_node_list_toggle(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    const char *entry;
+    char *script;
+
+    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
+	return JS_UNDEFINED;
+    }
+
+    script = Sprintf("if (this.element.className) {"
+		     "  let array = this.element.className.split(\' \');"
+		     "  let i = array.length - 1;"
+		     "  for (; i >= 0; i--) {"
+		     "    if (array[i] === \"%s\") {"
+		     "      if (array.length == 1) {"
+		     "        this.element.className = undefined;"
+		     "      } else {"
+		     "        array.splice(i, 1);"
+		     "        this.element.className = array.join(\" \");"
+		     "      }"
+		     "      break;"
+		     "    }"
+		     "  }"
+		     "  if (i < 0) {"
+		     "    array.push(\"%s\");"
+		     "    this.element.className = array.join(\" \");"
+		     "  }"
+		     "} else {"
+		     "  this.element.className = \"%s\";"
+		     "}", entry, entry, entry)->ptr;
+    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+
     return JS_UNDEFINED;
 }
 
 static JSValue
 dom_node_list_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return JS_FALSE;
+    const char *entry;
+    char *script;
+
+    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
+	return JS_UNDEFINED;
+    }
+
+    script = Sprintf("if (this.element.className) {"
+		     "  let array = this.element.className.split(\' \');"
+		     "  let flag = false;"
+		     "  for (let i = 0; i < array.length; i++) {"
+		     "    if (array[i] === \"%s\") {"
+		     "      flag = true;"
+		     "      break;"
+		     "    }"
+		     "  }"
+		     "  flag;"
+		     "} else {"
+		     "  false;"
+		     "}", entry)->ptr;
+
+    return JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG);
 }
 
 static struct {
@@ -743,6 +841,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
 
     classlist = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, classlist, "element", JS_DupValue(ctx, obj));
     for (i = 0; i < sizeof(DomNodeListFuncs) / sizeof(DomNodeListFuncs[0]); i++) {
 	JS_SetPropertyStr(ctx, classlist, DomNodeListFuncs[i].name,
 			  JS_NewCFunction(ctx, DomNodeListFuncs[i].func,
@@ -2239,20 +2338,27 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    for (attr = node->properties; attr != NULL; attr = attr->next) {
 		xmlNode *n;
 		JSValue value;
+		char *name;
 
 		n = attr->children;
 		if (n && n->type == XML_TEXT_NODE) {
+		    if (strcasecmp((char*)attr->name, "class") == 0) {
+			name = "className";
+		    } else {
+			name = (char*)attr->name;
+		    }
 		    value = JS_NewString(ctx, (char*)n->content);
 #ifdef DOM_DEBUG
-		    fprintf(fp, "attr %s=%s ", attr->name, n->content);
+		    fprintf(fp, "attr %s=%s ", name, n->content);
 #endif
 		} else {
+		    name = (char*)attr->name;
 		    value = JS_NULL;
 #ifdef DOM_DEBUG
-		    fprintf(fp, "attr %s", attr->name);
+		    fprintf(fp, "attr %s", name);
 #endif
 		}
-		JS_SetPropertyStr(ctx, jsnode, (char*)attr->name, value);
+		JS_SetPropertyStr(ctx, jsnode, name, value);
 	    }
 
 #ifdef DOM_DEBUG
@@ -2346,7 +2452,7 @@ create_dom_tree(JSContext *ctx, char *filename, char *charset)
 #ifdef DOM_DEBUG
 	else {
 	    FILE *fp = fopen("domlog.txt", "a");
-	    fprintf(fp, "orphan element %s\n", node->name);
+	    fprintf(fp, "(orphan element %s)\n", node->name);
 	    fclose(fp);
 	}
 #endif
