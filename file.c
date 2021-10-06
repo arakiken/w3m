@@ -4431,10 +4431,6 @@ remove_cr_nl(char *str)
 	return str;
     }
 
-    FILE *fp = fopen("log.txt", "a");
-    fprintf(fp, "%s\n", str);
-    fclose(fp);
-
     do {
 	if (*p1 == '\"') {
 	    if (*(p1 - 1) != '\\') {
@@ -4460,10 +4456,6 @@ remove_cr_nl(char *str)
     } while (*(++p1));
 
     *p2 = '\0';
-
-    fp = fopen("log.txt", "a");
-    fprintf(fp, "-> %s\n", str);
-    fclose(fp);
 
     return str;
 }

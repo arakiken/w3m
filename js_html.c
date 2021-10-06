@@ -2007,6 +2007,7 @@ js_html_init(void)
     char script[] =
 	"class NodeList extends Array {};"
 	"class HTMLCollection extends Array {};"
+	"class Event {};"
 	""
 	"/* Element.attributes */"
 	"function w3m_elementAttributes(obj) {"

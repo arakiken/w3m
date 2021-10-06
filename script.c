@@ -5,6 +5,10 @@
 
 #include <ctype.h> /* tolower */
 
+#if 1
+#define SET_FORM_TO_OPAQUE
+#endif
+
 static char *
 chop_last_modified(Buffer *buf) {
     char *lm = last_modified(buf);
@@ -162,6 +166,14 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
 
     /* http://www.shurey.com/js/samples/6_smp7.html */
     js_eval(interp, Sprintf("document.forms[%d].elements[%d][\"%d\"] = document.forms[%d].elements[%d].options[%d];", i, j, k, i, j, k)->ptr);
+
+#ifdef SET_FORM_OPAQUE
+    {
+	JSValue o = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].options[%d];", i, j, k)->ptr);
+	js_set_state(o, opt);
+	js_free(interp, o);
+    }
+#endif
 }
 
 static void
@@ -280,6 +292,14 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	}
 	js_free(interp, val);
     }
+
+#ifdef SET_FORM_OPAQUE
+    {
+	JSValue e = js_eval2(interp, Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
+	js_set_state(e, fi);
+	js_free(interp, e);
+    }
+#endif
 }
 
 static void
@@ -789,6 +809,39 @@ script_chBuf(int pos)
 }
 
 static int
+get_select_option(void *interp, int i, int j, int k, FormItemList *fi, FormSelectOptionItem *opt)
+{
+    int changed = 0;
+    JSValue val2 = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].options[%d].selected;", i, j, k)->ptr);
+    int flag = js_is_true(interp, val2);
+
+    if (flag != -1) {
+	if (flag != opt->checked) {
+	    if (flag) {
+		FormSelectOptionItem *o;
+		int idx = 0;
+
+		for (o = fi->select_option; o != NULL; o = o->next, idx++) {
+		    if (o == opt) {
+			fi->selected = idx;
+			opt->checked = TRUE;
+		    } else {
+			o->checked = 0;
+		    }
+		}
+	    } else {
+		opt->checked = FALSE;
+		fi->selected = 0;
+		fi->select_option->checked = 1;
+	    }
+	    changed = 1;
+	}
+    }
+
+    return changed;
+}
+
+static int
 get_form_element(void *interp, int i, int j, FormItemList *fi)
 {
     JSValue val;
@@ -860,31 +913,26 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
 	    fi->selected = new_idx;
 	    changed = 1;
 	} else {
-	    JSValue val2;
-
-	    for (k = 0, opt = fi->select_option; opt != NULL; k++, opt = opt->next) {
-		val2 = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].options[%d].selected;", i, j, k)->ptr);
-		int flag = js_is_true(interp, val2);
-		if (flag != -1) {
-		    if (flag != opt->checked) {
-			if (flag) {
-			    FormSelectOptionItem *o;
-			    for (o = fi->select_option; o != NULL; o = o->next) {
-				o->checked = 0;
-			    }
-
-			    opt->checked = TRUE;
-			    fi->selected = k;
-			} else {
-			    opt->checked = FALSE;
-			    fi->selected = 0;
-			    fi->select_option->checked = 1;
-			}
-			changed = 1;
-			break;
+#ifdef SET_FORM_OPAQUE
+	    for (k = 0; ; k++) {
+		JSValue o = js_eval2(interp,
+				     Sprintf("document.forms[%d].elements[%d].options[%d];", i, j, k)->ptr);
+		if (js_is_object(o)) {
+		    opt = js_get_state(o, HTMLElementClassID);
+		    if (opt != NULL) {
+			changed |= get_select_option(interp, i, j, k, fi, opt);
 		    }
+		    js_free(interp, o);
+		} else {
+		    js_free(interp, o);
+		    break;
 		}
 	    }
+#else
+	    for (k = 0, opt = fi->select_option; opt != NULL; k++, opt = opt->next) {
+		changed |= get_select_option(interp, i, j, k, fi, opt);
+	    }
+#endif
 	}
     }
 
@@ -1170,10 +1218,26 @@ script_js2buf(Buffer *buf, void *interp)
 		    fl->onreset = str->ptr;
 		}
 
+#ifdef SET_FORM_OPAQUE
+		for (j = 0; ; j++) {
+		    JSValue e = js_eval2(interp,
+					 Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
+		    if (js_is_object(e)) {
+			fi = js_get_state(e, HTMLElementClassID);
+			if (fi != NULL) {
+			    changed |= get_form_element(interp, i, j, fi);
+			}
+			js_free(interp, e);
+		    } else {
+			js_free(interp, e);
+			break;
+		    }
+		}
+#else
 		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
 		    changed |= get_form_element(interp, i, j, fi);
 		}
-
+#endif
 		if (state->submit) {
 		    followForm(fl);
 		    state->submit = 0;

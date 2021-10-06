@@ -65,6 +65,7 @@ typedef struct _HTMLFormElementState {
 #define js_is_undefined(val) JS_IsUndefined(val)
 #define js_is_exception(val) JS_IsException(val)
 #define js_is_object(val) JS_IsObject(val)
+#define js_set_state(obj, op) JS_SetOpaque(obj, op)
 #define js_get_state(obj, id) JS_GetOpaque(obj, id)
 #define js_free(ctx, val) JS_FreeValue(ctx, val)
 
