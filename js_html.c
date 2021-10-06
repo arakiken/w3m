@@ -700,7 +700,7 @@ dom_node_list_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 		     "  for (let i = 0; i < array.length; i++) {"
 		     "    if (array[i] === \"%s\") {"
 		     "      if (array.length == 1) {"
-		     "        this.element.className = undefined;"
+		     "        this.element.className = \"\";"
 		     "      } else {"
 		     "        array.splice(i, 1);"
 		     "        this.element.className = array.join(\" \");"
@@ -730,7 +730,7 @@ dom_node_list_toggle(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 		     "  for (; i >= 0; i--) {"
 		     "    if (array[i] === \"%s\") {"
 		     "      if (array.length == 1) {"
-		     "        this.element.className = undefined;"
+		     "        this.element.className = \"\";"
 		     "      } else {"
 		     "        array.splice(i, 1);"
 		     "        this.element.className = array.join(\" \");"
@@ -839,6 +839,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
+    JS_SetPropertyStr(ctx, obj, "className", JS_NewString(ctx, ""));
 
     classlist = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, classlist, "element", JS_DupValue(ctx, obj));
