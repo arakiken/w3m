@@ -57,6 +57,11 @@ typedef struct _HTMLFormElementState {
     int reset;
 } HTMLFormElementState;
 
+typedef struct _XMLHttpRequestState {
+    int method;
+    char *request;
+} XMLHttpRequestState;
+
 #define i2us(s) wc_Str_conv(s, InnerCharset, WC_CES_UTF_8)
 #define i2uc(s) wc_Str_conv(Strnew_charp(s), InnerCharset, WC_CES_UTF_8)->ptr
 #define u2is(s) wc_Str_conv(s, WC_CES_UTF_8, InnerCharset)
@@ -69,7 +74,7 @@ typedef struct _HTMLFormElementState {
 #define js_get_state(obj, id) JS_GetOpaque(obj, id)
 #define js_free(ctx, val) JS_FreeValue(ctx, val)
 
-extern JSContext *js_html_init(void);
+extern JSContext *js_html_init(Buffer *buf);
 extern void js_html_final(JSContext *ctx);
 
 extern void js_eval(JSContext *ctx, char *script);
@@ -78,6 +83,7 @@ extern JSValue js_eval2_this(JSContext *ctx, int formidx, char *script);
 
 extern char *js_get_cstr(JSContext *ctx, JSValue value);
 extern Str js_get_str(JSContext *ctx, JSValue value);
+extern void js_reset_functions(JSContext *ctx);
 extern Str js_get_function(JSContext *ctx, char *script);
 extern int js_get_int(JSContext *ctx, int *i, JSValue value);
 extern int js_is_true(JSContext *ctx, JSValue value);

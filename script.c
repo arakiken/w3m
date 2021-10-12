@@ -308,7 +308,7 @@ update_forms(Buffer *buf, void *interp)
     int i;
 
     js_eval(interp,
-	    "if (document.forms != undefined) {"
+	    "if (document.forms) {"
 	    "  for (let i = 0; i < document.forms.length; i++) {"
 	    "    document.body.removeChild(document.forms[i]);"
 	    "  }"
@@ -404,6 +404,8 @@ script_buf2js(Buffer *buf, void *interp)
 		"document.nodeType = 9; /* DOCUMENT_NODE */"
 		"document.referrer = \"\";"
 		"document.readyState = \"complete\";"
+		"document.visibilityState = \"visible\";" /* XXX */
+		"document.activeElement = null;"
 		"document.defaultView = window;"
 		""
 		"var screen = new Object();"
@@ -411,10 +413,12 @@ script_buf2js(Buffer *buf, void *interp)
 		"var history = new History();"
 		"var performance = new Object();"
 		"var localStorage = new Object();"
+		"var sessionStorage = new Object();"
 		""
 		"document.createDocumentFragment = function() {"
 		"  let doc = Object.assign(new Document(), document);"
 		"  w3m_initDocumentTree(doc);"
+		"  doc.nodeName = \"#document-fragment\";"
 		"  doc.nodeType = 11; /* DOCUMENT_FRAGMENT_NODE */"
 		"  return doc;"
 		"};"
@@ -636,26 +640,6 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return new Object();"
 		"};"
 		""
-		"class MutationObserver {"
-		"  constructor(callback) {"
-	        "    this.callback = callback;"
-		"  }"
-		"  observe(target, options) {"
-		"  }"
-		"  disconnect() {"
-		"  }"
-		"}"
-		""
-		"class IntersectionObserver {"
-		"  constructor(callback) {"
-		"    this.callback = callback;"
-		"  }"
-		"  observe(target) {"
-		"  }"
-		"  disconnect() {"
-		"  }"
-		"}"
-		""
 		"window.requestAnimationFrame = function(callback) {"
 		"  return null;"
 		"};"
@@ -679,13 +663,13 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return Date.now();"
 		"};"
 		""
-		"localStorage.getItem = function(key) {"
+		"sessionStorage.getItem = localStorage.getItem = function(key) {"
 		"  return null;"
 		"};"
 		""
-		"localStorage.setItem = function(key, value) { ; };"
+		"sessionStorage.setItem = localStorage.setItem = function(key, value) { ; };"
 		""
-		"localStorage.removeItem = function(key) { ; };"
+		"sessionStorage.removeItem = localStorage.removeItem = function(key) { ; };"
 		""
 		"function Image() {"
 		"  return new HTMLImageElement();"
@@ -714,6 +698,9 @@ script_buf2js(Buffer *buf, void *interp)
 		"}");
 	js_eval(interp, Sprintf("document.characterSet = \"%s\";",
 				wc_ces_to_charset(buf->document_charset))->ptr);
+	if (buf->buffername != NULL) {
+	    js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(buf->buffername))->ptr);
+	}
     } else {
 	js_eval(interp, "w3m_initDocumentTree(document);");
     }
@@ -841,6 +828,108 @@ get_select_option(void *interp, int i, int j, int k, FormItemList *fi, FormSelec
     return changed;
 }
 
+static Str
+get_form_element_event(void *interp, int i, int j, const char *type)
+{
+    char *script =
+	Sprintf("if (document.forms[%d].elements[%d].myevents) {"
+		"  let listener = undefined;"
+		"  for (let i = 0; i < document.forms[%d].elements[%d].myevents.length; i++) {"
+		"    if (document.forms[%d].elements[%d].myevents[i].type === \"%s\") {"
+		"      listener = document.forms[%d].elements[%d].myevents[i].listener;"
+		"      document.forms[%d].elements[%d].myevents.splice(i, 1);"
+		"      break;"
+		"    }"
+		"  }"
+		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"    listener.handleEvent;"
+		"  } else {"
+		"    listener;"
+		"  }"
+		"} else {"
+		"  undefined;"
+		"}", i, j, i, j, i, j, type, i, j, i, j)->ptr;
+
+    return js_get_function(interp, script);
+}
+
+static Str
+get_form_event(void *interp, int i, const char *type)
+{
+    char *script =
+	Sprintf("if (document.forms[%d].myevents) {"
+		"  let listener = undefined;"
+		"  for (let i = 0; i < document.forms[%d].myevents.length; i++) {"
+		"    if (document.forms[%d].myevents[i].type === \"%s\") {"
+		"      listener = document.forms[%d].myevents[i].listener;"
+		"      document.forms[%d].myevents.splice(i, 1);"
+		"      break;"
+		"    }"
+		"  }"
+		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"    listener.handleEvent;"
+		"  } else {"
+		"    listener;"
+		"  }"
+		"} else {"
+		"  undefined;"
+		"}", i, i, i, type, i, i)->ptr;
+
+    return js_get_function(interp, script);
+}
+
+/* XXX ? */
+static Str
+get_document_event(void *interp, const char *type)
+{
+    char *script =
+	Sprintf("if (document.myevents) {"
+		"  let listener = undefined;"
+		"  for (let i = 0; i < document.myevents.length; i++) {"
+		"    if (document.myevents[i].type === \"%s\") {"
+		"      listener = document.myevents[i].listener;"
+		"      document.myevents.splice(i, 1);"
+		"      break;"
+		"    }"
+		"  }"
+		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"    listener.handleEvent;"
+		"  } else {"
+		"    listener;"
+		"  }"
+		"} else {"
+		"  undefined;"
+		"}", type)->ptr;
+
+    return js_get_function(interp, script);
+}
+
+static void
+reset_func_list(GeneralList *list)
+{
+    if (list != NULL) {
+	ListItem *item = list->last;
+	while (item != NULL) {
+	    if (strncmp(item->ptr, "func_id:", 8) == 0) {
+		delValue(list, item);
+		item = list->last;
+	    } else {
+		item = item->prev;
+	    }
+	}
+    }
+}
+
+static void
+push_func(GeneralList **list, Str func)
+{
+    if (*list == NULL) {
+	*list = newGeneralList();
+    }
+
+    pushValue(*list, func);
+}
+
 static int
 get_form_element(void *interp, int i, int j, FormItemList *fi)
 {
@@ -849,6 +938,8 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
     Str str;
     int flag;
     int new_idx;
+    char *keyev[] = { "keypress", "keyup", "keydown" };
+    int idx;
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].checked;", i, j)->ptr);
     flag = js_is_true(interp, val);
@@ -881,18 +972,32 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
     }
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onkeyup;", i, j)->ptr);
+    reset_func_list(fi->onkeyup);
     if (str != NULL) {
-	fi->onkeyup = str;
+	push_func(&fi->onkeyup, str);
+    }
+    for (idx = 0; idx < sizeof(keyev) / sizeof(keyev[0]); idx++) {
+	while ((str = get_form_element_event(interp, i, j, keyev[idx])) != NULL) {
+	    push_func(&fi->onkeyup, str);
+	}
     }
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onclick;", i, j)->ptr);
+    reset_func_list(fi->onclick);
     if (str != NULL) {
-	fi->onclick = str;
+	push_func(&fi->onclick, str);
+    }
+    while ((str = get_form_element_event(interp, i, j, "click")) != NULL) {
+	push_func(&fi->onclick, str);
     }
 
     str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onchange;", i, j)->ptr);
+    reset_func_list(fi->onchange);
     if (str != NULL) {
-	fi->onchange = str;
+	push_func(&fi->onchange, str);
+    }
+    while ((str = get_form_element_event(interp, i, j, "change")) != NULL) {
+	push_func(&fi->onchange, str);
     }
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex;", i, j)->ptr);
@@ -1077,6 +1182,7 @@ script_js2buf(Buffer *buf, void *interp)
 {
     JSValue value;
     char *cstr;
+    Str ret;
 
     value = js_eval2(interp, "window;");
     if (js_is_object(value)) {
@@ -1209,13 +1315,27 @@ script_js2buf(Buffer *buf, void *interp)
 		}
 
 		str = js_get_function(interp, Sprintf("document.forms[%d].onsubmit;", i)->ptr);
+		reset_func_list(fl->onsubmit);
 		if (str != NULL) {
-		    fl->onsubmit = str->ptr;
+		    push_func(&fl->onsubmit, str);
+		}
+		while ((str = get_form_event(interp, i, "submit")) != NULL) {
+		    push_func(&fl->onsubmit, str);
+		}
+		while ((str = get_document_event(interp, "submit")) != NULL) {
+		    push_func(&fl->onsubmit, str);
 		}
 
 		str = js_get_function(interp, Sprintf("document.forms[%d].onreset;", i)->ptr);
+		reset_func_list(fl->onreset);
 		if (str != NULL) {
-		    fl->onreset = str->ptr;
+		    push_func(&fl->onreset, str);
+		}
+		while ((str = get_form_event(interp, i, "reset")) != NULL) {
+		    push_func(&fl->onreset, str);
+		}
+		while ((str = get_document_event(interp, "reset")) != NULL) {
+		    push_func(&fl->onreset, str);
 		}
 
 #ifdef SET_FORM_OPAQUE
@@ -1271,18 +1391,10 @@ script_js2buf(Buffer *buf, void *interp)
 	alert_msg = NULL;
     }
 
+    ret = NULL;
     value = js_eval2(interp, "document;");
     if (js_is_object(value)) {
 	DocumentState *state = js_get_state(value, DocumentClassID);
-
-	if (state->open) {
-	    Buffer *new_buf = nullBuffer();
-	    if (new_buf != NULL) {
-		pushBuffer(new_buf);
-	    }
-
-	    state->open = 0;
-	}
 
 	if (state->cookie_changed) {
 #ifdef USE_COOKIE
@@ -1291,49 +1403,64 @@ script_js2buf(Buffer *buf, void *interp)
 	    state->cookie_changed = 0;
 	}
 
-	if (state->write) {
-	    Str ret = u2is(state->write);
-	    js_free(interp, value);
-	    state->write = NULL;
+	if (state->open) {
+	    if (CurrentTab != NULL) {
+		Buffer *new_buf = nullBuffer();
+		if (new_buf != NULL) {
+		    pushBuffer(new_buf);
+		}
 
-	    return ret;
+		if (state->write) {
+		    process_html_str(new_buf, u2is(state->write)->ptr);
+		    state->write = NULL;
+		}
+	    }
+	    state->open = 0;
+	} else if (state->write) {
+	    ret = u2is(state->write);
+	    state->write = NULL;
 	}
     }
     js_free(interp, value);
 
-    return NULL;
+    return ret;
 }
 
 static void
 onload(void *interp)
 {
     js_eval(interp,
-	    "if (w3m_eventListeners.length > 0) {"
-	    "  let listeners = Object.assign(new Array(), w3m_eventListeners);"
-	    "  w3m_eventListeners = new Array();"
-	    "  for (let i = 0; i < listeners.length; i++) {"
-	    "    listeners[i].callback(listeners[i]);"
+	    "function w3m_onload(obj) {"
+	    "  if (obj.myevents) {"
+	    "    for (let i = 0; i < obj.myevents.length;) {"
+	    "      if (obj.myevents[i].type === \"load\" ||"
+	    "          obj.myevents[i].type === \"DOMContentLoaded\" ||"
+	    "          obj.myevents[i].type === \"visibilitychange\") {"
+	    "        if (typeof obj.myevents[i].listener == \"function\") {"
+	    "          obj.myevents[i].listener(obj.myevents[i]);"
+	    "        } else if (obj.myevents[i].listener.handleEvent) {"
+	    "          obj.myevents[i].listener.handleEvent(obj.myevents[i]);"
+	    "        }"
+	    "        obj.myevents.splice(i, 1);"
+	    "      } else {"
+	    "        i++;"
+	    "      }"
+	    "    }"
+	    "  }"
+	    "  if (obj.onload != undefined) {"
+	    "    obj.onload();"
+	    "    obj.onload = undefined;"
 	    "  }"
 	    "}"
-	    ""
-	    "function w3m_onload(element) {"
-	    "  if (element.onload != undefined) {"
-	    "    element.onload();"
-	    "    element.onload = undefined;"
-	    "  }"
+	    "function w3m_element_onload(element) {"
+	    "  w3m_onload(element);"
 	    "  for (let i = 0; i < element.children.length; i++) {"
 	    "    w3m_onload(element.children[i]);"
 	    "  }"
 	    "}"
 	    ""
-	    "for (let i = 0; i < document.forms.length; i++) {"
-	    "  w3m_onload(document.forms[i]);"
-	    "}"
-	    "for (let i = 0; i < document.children.length; i++) {"
-	    "  w3m_onload(document.children[i]);"
-	    "}"
-	    ""
-	    "w3m_onload(document.body);"
+	    "w3m_element_onload(document);"
+	    "w3m_onload(window);"
 	    ""
 	    "if (window.onload != undefined) {"
 	    "  window.onload();"
@@ -1356,12 +1483,13 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, 
     if (buf->script_interp != NULL) {
 	interp = buf->script_interp;
     } else {
-	buf->script_interp = interp = js_html_init();
+	buf->script_interp = interp = js_html_init(buf);
 	buf2js = 1;
     }
 
     if (buf2js) {
 	if (buf2js > 0) {
+	    js_reset_functions(interp);
 	    script_buf2js(buf, interp);
 	    create_dom_tree(interp, buf->sourcefile, wc_ces_to_charset(buf->document_charset));
 	} else {

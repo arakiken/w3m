@@ -83,8 +83,14 @@ newFormList(char *action, char *method, char *charset, char *enctype,
     l->body = NULL;
     l->length = 0;
 #ifdef USE_SCRIPT
-    l->onsubmit = wc_conv(onsubmit, InnerCharset, WC_CES_UTF_8)->ptr;
-    l->onreset = wc_conv(onreset, InnerCharset, WC_CES_UTF_8)->ptr;
+    if (onsubmit) {
+	l->onsubmit = newGeneralList();
+	pushValue(l->onsubmit, wc_conv(onsubmit, InnerCharset, WC_CES_UTF_8));
+    }
+    if (onreset) {
+	l->onreset = newGeneralList();
+	pushValue(l->onreset, wc_conv(onreset, InnerCharset, WC_CES_UTF_8));
+    }
 #endif
     return l;
 }
@@ -155,23 +161,28 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 #endif				/* MENU_SELECT */
 #ifdef USE_SCRIPT
     if (parsedtag_get_value(tag, ATTR_ONCLICK, &p)) {
-	item->onclick = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+	item->onclick = newGeneralList();
+	pushValue(item->onclick, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else {
 	item->onclick = NULL;
     }
     if (parsedtag_get_value(tag, ATTR_ONKEYUP, &p)) {
-	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+	item->onkeyup = newGeneralList();
+	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else if (parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p)) {
 	/* XXX */
-	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+	item->onkeyup = newGeneralList();
+	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else if (parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p)) {
 	/* XXX */
-	item->onkeyup = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+	item->onkeyup = newGeneralList();
+	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else {
 	item->onkeyup = NULL;
     }
     if (parsedtag_get_value(tag, ATTR_ONCHANGE, &p)) {
-	item->onchange = wc_conv(p, InnerCharset, WC_CES_UTF_8);
+	item->onchange = newGeneralList();
+	pushValue(item->onchange, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else {
 	item->onchange = NULL;
     }

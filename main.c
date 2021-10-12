@@ -3458,10 +3458,34 @@ followForm(FormList *fl)
 
 #ifdef USE_JAVASCRIPT
 static int
-script_eval_and_load(Buffer *buf, char *script, FormList *fl)
+script_eval_intern(Buffer *buf, char *script, FormList *fl, Str *output)
+{
+    /* remove "return" at the beginning of the script to avoid quickjs error. */
+    while (*script == ' ' || *script == '\t') { script++; }
+    if (strncmp(script, "return", 6) == 0) { script += 6; }
+    while (*script == ' ' || *script == '\t') { script++; }
+
+    return script_eval(buf, "javascript", script, -1, 1, fl, output);
+}
+
+static int
+script_eval_and_load(Buffer *buf, GeneralList *scripts, FormList *fl)
 {
     Str output = NULL;
-    int ret = script_eval(buf, "javascript", script, -1, 1, fl, &output);
+    int ret = 1;
+    ListItem *item;
+
+    for (item = scripts->first; item != NULL; item = item->next) {
+	Str tmp = NULL;
+	ret &= script_eval_intern(buf, ((Str)item->ptr)->ptr, fl, &tmp);
+	if (tmp != NULL) {
+	    if (output == NULL) {
+		output = tmp;
+	    } else {
+		Strcat(output, tmp);
+	    }
+	}
+    }
 
     if (buf->location) {
 	Buffer *new_buf = loadGeneralFile(buf->location, baseURL(buf), NO_REFERER, 0, NULL);
@@ -3517,8 +3541,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onkeyup || fi->onchange) {
-	    char *script = fi->onkeyup ? fi->onkeyup->ptr : fi->onchange->ptr;
-	    script_eval_and_load(Currentbuf, script, fl);
+	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fl);
 	    break;
 	}
 #endif
@@ -3569,7 +3592,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange->ptr, fl);
+	    script_eval_and_load(Currentbuf, fi->onchange, fl);
 	    break;
 	}
 #endif
@@ -3607,7 +3630,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange->ptr, fl);
+	    script_eval_and_load(Currentbuf, fi->onchange, fl);
 	    break;
 	}
 #endif
@@ -3618,14 +3641,12 @@ _followForm(int submit, FormList *fl)
     case FORM_INPUT_SUBMIT:
 #ifdef USE_JAVASCRIPT
 	if (fl->onsubmit) {
-	    char *script = fl->onsubmit;
-
-	    /* remove "return" at the beginning of the script to avoid quickjs error. */
-	    while (*script == ' ' || *script == '\t') { script++; }
-	    if (strncmp(script, "return", 6) == 0) { script += 6; }
-	    while (*script == ' ' || *script == '\t') { script++; }
-
-	    if (!script_eval(Currentbuf, "javascript", script, -1, 1, fl, NULL)) {
+	    ListItem *item;
+	    int ret = 1;
+	    for (item = fl->onsubmit->first; item != NULL; item = item->next) {
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, fl, NULL);
+	    }
+	    if (!ret) {
 		break;
 	    }
 	}
@@ -3635,7 +3656,7 @@ _followForm(int submit, FormList *fl)
       do_submit:
 #ifdef USE_JAVASCRIPT
 	if (fi->onclick) {
-	    script_eval_and_load(Currentbuf, fi->onclick->ptr, fl);
+	    script_eval_and_load(Currentbuf, fi->onclick, fl);
 	    break;
 	}
 #endif
@@ -3693,14 +3714,12 @@ _followForm(int submit, FormList *fl)
     case FORM_INPUT_RESET:
 #ifdef USE_JAVASCRIPT
 	if (fl->onreset) {
-	    char *script = fl->onreset;
-
-	    /* remove "return" at the beginning of the script to avoid quickjs error. */
-	    while (*script == ' ' || *script == '\t') { script++; }
-	    if (strncmp(script, "return", 6) == 0) { script += 6; }
-	    while (*script == ' ' || *script == '\t') { script++; }
-
-	    if (!script_eval(Currentbuf, "javascript", script, -1, 1, fl, NULL)) {
+	    ListItem *item;
+	    int ret = 1;
+	    for (item = fl->onreset->first; item != NULL; item = item->next) {
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, fl, NULL);
+	    }
+	    if (!ret) {
 		break;
 	    }
 	}

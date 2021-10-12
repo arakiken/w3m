@@ -86,7 +86,7 @@ static int ignore_nl_textarea;
 static char *cur_textarea_id;
 int max_textarea = MAX_TEXTAREA;
 
-static int http_response_code;
+int http_response_code;
 
 #ifdef USE_M17N
 static wc_ces content_charset = 0;
@@ -7646,6 +7646,13 @@ init_henv(struct html_feed_environ *h_env, struct readbuffer *obuf,
     h_env->envc_real = 0;
     h_env->title = NULL;
     h_env->blank_lines = 0;
+#ifdef USE_SCRIPT
+    h_env->scripts = NULL;
+    h_env->sourcefile = NULL;
+#ifdef USE_M17N
+    h_env->document_charset = WC_CES_UTF_8;
+#endif
+#endif
 }
 
 void
