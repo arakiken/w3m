@@ -182,16 +182,19 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
     char *id, *n, *t, *v;
     int k;
     FormSelectOptionItem *opt;
+    ListItem *item;
 
-    if (fi->type == FORM_TEXTAREA) {
-	t = "textarea";
-    } else if (fi->type == FORM_SELECT) {
+    if (fi->type == FORM_SELECT) {
 	t = "select";
+	js_eval(interp, Sprintf("document.forms[%d].appendChild(new HTMLSelectElement());", i)->ptr);
     } else {
-	t = "input";
+	if (fi->type == FORM_TEXTAREA) {
+	    t = "textarea";
+	} else {
+	    t = "input";
+	}
+	js_eval(interp, Sprintf("document.forms[%d].appendChild(new HTMLElement(\"%s\"));", i, t)->ptr);
     }
-
-    js_eval(interp, Sprintf("document.forms[%d].appendChild(new HTMLElement(\"%s\"));", i, t)->ptr);
 
     id = n = v = "";
     if (fi->id && fi->id->length > 0)
@@ -234,10 +237,6 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	else
 	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].checked = false;", i, j)->ptr);
 
-	js_eval(interp, Sprintf("document.forms[%d].elements[%d].click ="
-				"function() {"
-				"  this.checked = true;"
-				"};", i, j)->ptr);
 	break;
     case FORM_INPUT_SUBMIT:
 	t = "submit"; break;
@@ -293,6 +292,25 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	js_free(interp, val);
     }
 
+    if (fi->onkeyup) {
+	for (item = fi->onkeyup->first; item; item = item->next) {
+	    JSValue val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
+	    js_add_event_listener(interp, val, "keyup", ((Str)item->ptr)->ptr);
+	}
+    }
+    if (fi->onclick) {
+	for (item = fi->onclick->first; item; item = item->next) {
+	    JSValue val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
+	    js_add_event_listener(interp, val, "click", ((Str)item->ptr)->ptr);
+	}
+    }
+    if (fi->onchange) {
+	for (item = fi->onchange->first; item; item = item->next) {
+	    JSValue val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
+	    js_add_event_listener(interp, val, "change", ((Str)item->ptr)->ptr);
+	}
+    }
+
 #ifdef SET_FORM_OPAQUE
     {
 	JSValue e = js_eval2(interp, Sprintf("document.forms[%d].elements[%d];", i, j)->ptr);
@@ -323,6 +341,7 @@ update_forms(Buffer *buf, void *interp)
 	    char *m, *a, *e, *n, *t, *id;
 	    FormItemList *fi;
 	    int j;
+	    ListItem *item;
 
 	    js_eval(interp, Sprintf("document.forms[%d] = new HTMLFormElement();", i)->ptr);
 	    js_eval(interp, Sprintf("document.body.appendChild(document.forms[%d]);", i)->ptr);
@@ -364,6 +383,19 @@ update_forms(Buffer *buf, void *interp)
 
 	    /* http://alphasis.info/2013/12/javascript-gyakubiki-form-immediatelyreflect/ */
 	    js_eval(interp, Sprintf("document.forms[%d].length = document.forms[%d].elements.length;", i, i)->ptr);
+
+	    if (fl->onsubmit) {
+		for (item = fl->onsubmit->first; item; item = item->next) {
+		    JSValue val = js_eval2(interp, Sprintf("document.forms[%d];", i)->ptr);
+		    js_add_event_listener(interp, val, "submit", ((Str)item->ptr)->ptr);
+		}
+	    }
+	    if (fl->onreset) {
+		for (item = fl->onreset->first; item; item = item->next) {
+		    JSValue val = js_eval2(interp, Sprintf("document.forms[%d];", i)->ptr);
+		    js_add_event_listener(interp, val, "reset", ((Str)item->ptr)->ptr);
+		}
+	    }
 	}
     }
 }
@@ -436,6 +468,8 @@ script_buf2js(Buffer *buf, void *interp)
 		"    return new HTMLFormElement();"
 		"  } else if (tagname === \"img\") {"
 		"    return new HTMLImageElement();"
+		"  } else if (tagname === \"select\") {"
+		"    return new HTMLSelectElement();"
 		"  } else if (tagname === \"script\") {"
 		"    return new HTMLScriptElement();"
 		"  } else {"
@@ -486,7 +520,8 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"function w3m_getElementsByTagName(element, name, elements) {"
 		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (name === \"*\" || element.children[i].tagName.toLowerCase() === name) {"
+		"    if (name === \"*\" ? element.children[i].nodeType == 1 :"
+		"                         element.children[i].tagName.toLowerCase() === name) {"
 		"      elements.push(element.children[i]);"
 		"    }"
 		"    w3m_getElementsByTagName(element.children[i], name, elements);"
@@ -910,7 +945,7 @@ reset_func_list(GeneralList *list)
     if (list != NULL) {
 	ListItem *item = list->last;
 	while (item != NULL) {
-	    if (strncmp(item->ptr, "func_id:", 8) == 0) {
+	    if (strncmp(((Str)item->ptr)->ptr, "func_id:", 8) == 0) {
 		delValue(list, item);
 		item = list->last;
 	    } else {
@@ -931,7 +966,7 @@ push_func(GeneralList **list, Str func)
 }
 
 static int
-get_form_element(void *interp, int i, int j, FormItemList *fi)
+get_form_element(Buffer *buf, void *interp, int i, int j, FormItemList *fi)
 {
     JSValue val;
     int changed = 0;
@@ -940,26 +975,6 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
     int new_idx;
     char *keyev[] = { "keypress", "keyup", "keydown" };
     int idx;
-
-    val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].checked;", i, j)->ptr);
-    flag = js_is_true(interp, val);
-    if (flag != -1) {
-	if (flag != fi->checked) {
-	    if (flag && fi->type == FORM_INPUT_RADIO) {
-		FormList *fl = fi->parent;
-		FormItemList *i;
-		for (i = fl->item; i != NULL; i = i->next) {
-		    if (i->type == FORM_INPUT_RADIO &&
-			i->name && Strcmp(i->name, fi->name) == 0) {
-			i->checked = 0;
-		    }
-		}
-	    }
-
-	    fi->checked = flag;
-	    changed = 1;
-	}
-    }
 
     val = js_eval2(interp, Sprintf("document.forms[%d].children[%d].value;", i, j)->ptr);
     str = js_get_str(interp, val);
@@ -998,6 +1013,26 @@ get_form_element(void *interp, int i, int j, FormItemList *fi)
     }
     while ((str = get_form_element_event(interp, i, j, "change")) != NULL) {
 	push_func(&fi->onchange, str);
+    }
+
+    val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].checked;", i, j)->ptr);
+    flag = js_is_true(interp, val);
+    if (flag != -1) {
+	if ((!flag || !trigger_click_event(buf, fi)) && flag != fi->checked) {
+	    if (flag && fi->type == FORM_INPUT_RADIO) {
+		FormList *fl = fi->parent;
+		FormItemList *i;
+		for (i = fl->item; i != NULL; i = i->next) {
+		    if (i->type == FORM_INPUT_RADIO &&
+			i->name && Strcmp(i->name, fi->name) == 0) {
+			i->checked = 0;
+		    }
+		}
+	    }
+
+	    fi->checked = flag;
+	    changed = 1;
+	}
     }
 
     val = js_eval2(interp, Sprintf("document.forms[%d].elements[%d].selectedIndex;", i, j)->ptr);
@@ -1345,7 +1380,7 @@ script_js2buf(Buffer *buf, void *interp)
 		    if (js_is_object(e)) {
 			fi = js_get_state(e, HTMLElementClassID);
 			if (fi != NULL) {
-			    changed |= get_form_element(interp, i, j, fi);
+			    changed |= get_form_element(buf, interp, i, j, fi);
 			}
 			js_free(interp, e);
 		    } else {
@@ -1355,7 +1390,7 @@ script_js2buf(Buffer *buf, void *interp)
 		}
 #else
 		for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
-		    changed |= get_form_element(interp, i, j, fi);
+		    changed |= get_form_element(buf, interp, i, j, fi);
 		}
 #endif
 		if (state->submit) {
@@ -1406,6 +1441,7 @@ script_js2buf(Buffer *buf, void *interp)
 	if (state->open) {
 	    if (CurrentTab != NULL) {
 		Buffer *new_buf = nullBuffer();
+		new_buf->currentURL = buf->currentURL;
 		if (new_buf != NULL) {
 		    pushBuffer(new_buf);
 		}
@@ -1431,8 +1467,12 @@ onload(void *interp)
 {
     js_eval(interp,
 	    "function w3m_onload(obj) {"
-	    "  if (obj.myevents) {"
-	    "    for (let i = 0; i < obj.myevents.length;) {"
+	    "  if (obj.myevents && obj.myevents.length > 0) {"
+	    "    /*"
+	    "     * 'i = 0; ...;i++' falls infinite loop if a listener calls addEventListener()."
+	    "     * The case of calling removeEventListener() is not considered."
+	    "     */"
+	    "    for (let i = obj.myevents.length - 1; i >= 0; i--) {"
 	    "      if (obj.myevents[i].type === \"load\" ||"
 	    "          obj.myevents[i].type === \"DOMContentLoaded\" ||"
 	    "          obj.myevents[i].type === \"visibilitychange\") {"
@@ -1442,8 +1482,6 @@ onload(void *interp)
 	    "          obj.myevents[i].listener.handleEvent(obj.myevents[i]);"
 	    "        }"
 	    "        obj.myevents.splice(i, 1);"
-	    "      } else {"
-	    "        i++;"
 	    "      }"
 	    "    }"
 	    "  }"

@@ -4493,12 +4493,11 @@ get_script_str(Script *script, ParsedURL *baseURL)
 }
 
 static Str
-eval_script_intern(Buffer *buf)
+eval_script_intern(Buffer *buf, int buf2js)
 {
     GeneralList *scripts = buf->scripts;
     Str ret = NULL;
     ListItem *l;
-    int buf2js = 1;
 
     for (l = scripts->first; l != NULL; l = l->next) {
 	Script *script = l->ptr;
@@ -4525,6 +4524,7 @@ eval_script_intern(Buffer *buf)
 	    orig_target = buf->script_target;
 	    buf->script_target = script->target;
 	}
+	tmp = NULL;
 	script_eval(buf, script->lang, p, buf2js, l->next == NULL ? 1 : 0, NULL, &tmp);
 	buf2js = 0;
 	if (script->target) {
@@ -4563,7 +4563,7 @@ process_n_script(struct html_feed_environ *h_env)
 	buf->scripts = h_env->scripts;
 	buf->sourcefile = h_env->sourcefile;
 	buf->document_charset = h_env->document_charset;
-	ret = eval_script_intern(buf);
+	ret = eval_script_intern(buf, 1);
 	h_env->scripts = NULL;
     }
     return ret;
@@ -4612,13 +4612,24 @@ process_html_str(Buffer *buf, char *html_str)
 	buf->lastLine = buf->currentLine;
 	buf->currentLine = buf->firstLine;
     }
+
+    if (htmlenv1.scripts != NULL) {
+	/* see eval_script() */
+	Str ret;
+	buf->scripts = htmlenv1.scripts;
+	ret = eval_script_intern(buf, 0);
+	buf->scripts = NULL;
+	if (ret) {
+	    process_html_str(buf, ret->ptr);
+	}
+    }
 }
 
 static void
 eval_script(Buffer *buf)
 {
     if (buf->scripts != NULL) {
-	Str ret = eval_script_intern(buf);
+	Str ret = eval_script_intern(buf, 1);
 	buf->scripts = NULL;
 	if (ret) {
 	    process_html_str(buf, ret->ptr);

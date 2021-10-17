@@ -3458,14 +3458,14 @@ followForm(FormList *fl)
 
 #ifdef USE_JAVASCRIPT
 static int
-script_eval_intern(Buffer *buf, char *script, FormList *fl, Str *output)
+script_eval_intern(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, Str *output)
 {
     /* remove "return" at the beginning of the script to avoid quickjs error. */
     while (*script == ' ' || *script == '\t') { script++; }
     if (strncmp(script, "return", 6) == 0) { script += 6; }
     while (*script == ' ' || *script == '\t') { script++; }
 
-    return script_eval(buf, "javascript", script, -1, 1, fl, output);
+    return script_eval(buf, "javascript", script, buf2js, js2buf, fl, output);
 }
 
 static int
@@ -3474,10 +3474,14 @@ script_eval_and_load(Buffer *buf, GeneralList *scripts, FormList *fl)
     Str output = NULL;
     int ret = 1;
     ListItem *item;
+    int buf2js = -1;
 
-    for (item = scripts->first; item != NULL; item = item->next) {
+    /* last -> prev is to ignore event listeners added by script_eval() just before. */
+    for (item = scripts->last; item != NULL; item = item->prev) {
 	Str tmp = NULL;
-	ret &= script_eval_intern(buf, ((Str)item->ptr)->ptr, fl, &tmp);
+	ret &= script_eval_intern(buf, ((Str)item->ptr)->ptr, buf2js,
+				  item->next == NULL ? 1 : 0, fl, &tmp);
+	buf2js = 0;
 	if (tmp != NULL) {
 	    if (output == NULL) {
 		output = tmp;
@@ -3496,6 +3500,33 @@ script_eval_and_load(Buffer *buf, GeneralList *scripts, FormList *fl)
 
     if (output) {
 	process_html_str(buf, output->ptr);
+    }
+
+    return ret;
+}
+
+int
+trigger_click_event(Buffer *buf, FormItemList *fi)
+{
+    int ret = 0;
+
+    /* See _followForm() */
+    switch(fi->type) {
+    case FORM_INPUT_SUBMIT:
+	if (fi->parent->onsubmit) {
+	    ListItem *item;
+	    for (item = fi->parent->onsubmit->first; item != NULL; item = item->next) {
+		script_eval(Currentbuf, "javascript", ((Str)item->ptr)->ptr,
+			    -1, 1, fi->parent, NULL);
+	    }
+	    ret = 1;
+	}
+    case FORM_INPUT_IMAGE:
+    case FORM_INPUT_BUTTON:
+	if (fi->onclick) {
+	    script_eval_and_load(buf, fi->onclick, fi->parent);
+	    ret = 1;
+	}
     }
 
     return ret;
@@ -3644,7 +3675,7 @@ _followForm(int submit, FormList *fl)
 	    ListItem *item;
 	    int ret = 1;
 	    for (item = fl->onsubmit->first; item != NULL; item = item->next) {
-		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, fl, NULL);
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fl, NULL);
 	    }
 	    if (!ret) {
 		break;
@@ -3717,7 +3748,7 @@ _followForm(int submit, FormList *fl)
 	    ListItem *item;
 	    int ret = 1;
 	    for (item = fl->onreset->first; item != NULL; item = item->next) {
-		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, fl, NULL);
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fl, NULL);
 	    }
 	    if (!ret) {
 		break;

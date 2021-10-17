@@ -60,6 +60,9 @@ typedef struct _HTMLFormElementState {
 typedef struct _XMLHttpRequestState {
     int method;
     char *request;
+    TextList *extra_headers;
+    int override_content_type;
+    int override_user_agent;
 } XMLHttpRequestState;
 
 #define i2us(s) wc_Str_conv(s, InnerCharset, WC_CES_UTF_8)
@@ -87,7 +90,7 @@ extern void js_reset_functions(JSContext *ctx);
 extern Str js_get_function(JSContext *ctx, char *script);
 extern int js_get_int(JSContext *ctx, int *i, JSValue value);
 extern int js_is_true(JSContext *ctx, JSValue value);
-
+extern void js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func);
 #ifdef USE_LIBXML2
 int create_dom_tree(JSContext *ctx, char *filename, char *charset);
 #else
