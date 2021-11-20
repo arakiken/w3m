@@ -3622,8 +3622,8 @@ _followForm(int submit, FormList *fl)
 	input_textarea(fi);
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
-	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange, fl);
+	if (fi->onkeyup || fi->onchange) {
+	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fl);
 	    break;
 	}
 #endif

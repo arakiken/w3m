@@ -3,11 +3,12 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
-#define NUM_TAGNAMES 4
+#define NUM_TAGNAMES 5
 #define TN_FORM 0
 #define TN_IMG 1
 #define TN_SCRIPT 2
 #define TN_SELECT 3
+#define TN_CANVAS 4
 
 typedef struct _CtxState {
     JSValue tagnames[NUM_TAGNAMES];
@@ -32,9 +33,11 @@ JSClassID HTMLElementClassID;
 static JSClassID HTMLImageElementClassID;
 static JSClassID HTMLSelectElementClassID;
 static JSClassID HTMLScriptElementClassID;
+static JSClassID HTMLCanvasElementClassID;
 static JSClassID ElementClassID;
 static JSClassID SVGElementClassID;
 static JSClassID XMLHttpRequestClassID;
+static JSClassID CanvasRenderingContext2DClassID;
 
 char *alert_msg;
 
@@ -928,6 +931,95 @@ static struct {
     { "contains", dom_node_list_contains } ,
 };
 
+static const JSClassDef CanvasRenderingContext2DClass = {
+    "CanvasRenderingContext2D", NULL, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+canvas_rendering_context2d_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_NewObjectClass(ctx, CanvasRenderingContext2DClassID);
+}
+
+static JSValue
+canvas2d_ignore(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static void log_to_file(JSContext *ctx, const char *head, int argc, JSValueConst *argv);
+
+static JSValue
+canvas2d_fill_text(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_to_file(ctx, "Canvas:", 1, argv);
+
+    return JS_UNDEFINED;
+}
+
+static int
+get_num_chars(JSContext *ctx, JSValue str)
+{
+    JSValue prop;
+    JSValue ret;
+    int num;
+
+    prop = JS_GetPropertyStr(ctx, str, "length");
+    ret = JS_Call(ctx, prop, str, 0, NULL);
+    if (JS_IsNumber(ret)) {
+	JS_ToInt32(ctx, &num, ret);
+    } else {
+	num = 0;
+    }
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, ret);
+
+    return num;
+}
+
+static JSValue
+canvas2d_measure_text(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue tm;
+    int num;
+
+    if (argc < 1) {
+	num = 0;
+    } else {
+	num = get_num_chars(ctx, argv[0]);
+    }
+
+    tm = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, tm, "width", JS_NewFloat64(ctx, term_ppc * num));
+    JS_SetPropertyStr(ctx, tm, "emHeightAscent", JS_NewFloat64(ctx, term_ppl * 0.8));
+    JS_SetPropertyStr(ctx, tm, "emHeightDescent", JS_NewFloat64(ctx, term_ppl * 0.2));
+    /* XXX */
+
+    return tm;
+}
+
+static const JSCFunctionListEntry CanvasRenderingContext2DFuncs[] = {
+    JS_CFUNC_DEF("arc", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("arcTo", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("beginPath", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("clearRect", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("closePath", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("drawFocusIfNeeded", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("ellips", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("fillRect", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("fillText", 1, canvas2d_fill_text),
+    JS_CFUNC_DEF("lineTo", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("measureText", 1, canvas2d_measure_text),
+    JS_CFUNC_DEF("moveTo", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("rect", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("save", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("scale", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("setLineDash", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("stroke", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("strokeText", 1, canvas2d_ignore),
+    JS_CFUNC_DEF("strokeRect", 1, canvas2d_ignore),
+};
+
 static void
 html_form_element_final(JSRuntime *rt, JSValue val) {
     GC_FREE(JS_GetOpaque(val, HTMLFormElementClassID));
@@ -948,9 +1040,9 @@ init_children(JSContext *ctx, JSValue obj, const char *tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "children", JS_DupValue(ctx, children));
 
-    if (strcasecmp(tagname, "form") == 0) {
+    if (strcasecmp(tagname, "FORM") == 0) {
 	JS_SetPropertyStr(ctx, obj, "elements", JS_DupValue(ctx, children));
-    } else if (strcasecmp(tagname, "select") == 0) {
+    } else if (strcasecmp(tagname, "SELECT") == 0) {
 	JS_SetPropertyStr(ctx, obj, "options", JS_DupValue(ctx, children));
     }
 }
@@ -981,6 +1073,14 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "className", JS_NewString(ctx, ""));
+    JS_SetPropertyStr(ctx, obj, "querySelector",
+		      JS_Eval(ctx, "document.querySelector;", 23, "<input>", EVAL_FLAG));
+    JS_SetPropertyStr(ctx, obj, "querySelectorAll",
+		      JS_Eval(ctx, "document.querySelectorAll;", 26, "<input>", EVAL_FLAG));
+    JS_SetPropertyStr(ctx, obj, "getElementsByTagName",
+		      JS_Eval(ctx, "document.getElementsByTagName;", 30, "<input>", EVAL_FLAG));
+    JS_SetPropertyStr(ctx, obj, "getElementsByClassName",
+		      JS_Eval(ctx, "document.getElementsByClassName;", 32, "<input>", EVAL_FLAG));
 
     classlist = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, classlist, "element", JS_DupValue(ctx, obj));
@@ -1007,7 +1107,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
 
     /* XXX HTMLIFrameElement */
-    if (strcasecmp(str, "iframe") == 0) {
+    if (strcasecmp(str, "IFRAME") == 0) {
 	char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), document);"
@@ -1030,7 +1130,7 @@ html_form_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 
     ctxstate = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(ctxstate->tagnames[TN_FORM])) {
-	ctxstate->tagnames[TN_FORM] = JS_NewString(ctx, "form");
+	ctxstate->tagnames[TN_FORM] = JS_NewString(ctx, "FORM");
     }
 
     obj = JS_NewObjectClass(ctx, HTMLFormElementClassID);
@@ -1096,7 +1196,7 @@ html_image_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCon
 
     ctxstate = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(ctxstate->tagnames[TN_IMG])) {
-	ctxstate->tagnames[TN_IMG] = JS_NewString(ctx, "img");
+	ctxstate->tagnames[TN_IMG] = JS_NewString(ctx, "IMG");
     }
 
     obj = JS_NewObjectClass(ctx, HTMLImageElementClassID);
@@ -1117,7 +1217,7 @@ html_select_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
 
     ctxstate = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(ctxstate->tagnames[TN_SELECT])) {
-	ctxstate->tagnames[TN_SELECT] = JS_NewString(ctx, "select");
+	ctxstate->tagnames[TN_SELECT] = JS_NewString(ctx, "SELECT");
     }
 
     obj = JS_NewObjectClass(ctx, HTMLSelectElementClassID);
@@ -1138,11 +1238,32 @@ html_script_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
 
     ctxstate = JS_GetContextOpaque(ctx);
     if (JS_IsUndefined(ctxstate->tagnames[TN_SCRIPT])) {
-	ctxstate->tagnames[TN_SCRIPT] = JS_NewString(ctx, "script");
+	ctxstate->tagnames[TN_SCRIPT] = JS_NewString(ctx, "SCRIPT");
     }
 
     obj = JS_NewObjectClass(ctx, HTMLScriptElementClassID);
     set_element_property(ctx, obj, ctxstate->tagnames[TN_SCRIPT]);
+
+    return obj;
+}
+
+static const JSClassDef HTMLCanvasElementClass = {
+    "HTMLCanvasElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+html_canvas_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+    CtxState *ctxstate;
+
+    ctxstate = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(ctxstate->tagnames[TN_CANVAS])) {
+	ctxstate->tagnames[TN_CANVAS] = JS_NewString(ctx, "CANVAS");
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLCanvasElementClassID);
+    set_element_property(ctx, obj, ctxstate->tagnames[TN_CANVAS]);
 
     return obj;
 }
@@ -1700,11 +1821,23 @@ element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSVa
 }
 
 static JSValue
+element_get_attribute_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_NULL;
+}
+
+static JSValue
 element_click(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JS_SetPropertyStr(ctx, jsThis, "checked", JS_TRUE);
 
     return JS_UNDEFINED;
+}
+
+static JSValue
+element_get_context(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return canvas_rendering_context2d_new(ctx, jsThis, 0, NULL);
 }
 
 static const JSCFunctionListEntry ElementFuncs[] = {
@@ -1744,6 +1877,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("getElementsByClassName", 1, element_get_elements_by_class_name),
     JS_CGETSET_DEF("innerHTML", element_text_content_get, element_text_content_set),
     JS_CFUNC_DEF("insertAdjacentHTML", 1, element_insert_adjacent_html),
+    JS_CFUNC_DEF("getAttributeNode", 1, element_get_attribute_node),
 
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
@@ -1753,6 +1887,9 @@ static const JSCFunctionListEntry ElementFuncs[] = {
 
     /* XXX HTMLIFrameElement only */
     JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
+
+    /* XXX HTMLCanvasElement only */
+    JS_CFUNC_DEF("getContext", 1, element_get_context),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
 
@@ -2482,6 +2619,7 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	"class NodeList extends Array {}"
+	"class FileList extends Array {}"
 	"class HTMLCollection extends Array {}"
 	"class Event {"
 	"  constructor(type) {"
@@ -2586,6 +2724,10 @@ js_html_init(Buffer *buf)
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLScriptElementClass,
 		 html_script_element_new);
 
+    create_class(ctx, gl, &HTMLCanvasElementClassID, "HTMLCanvasElement", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLCanvasElementClass,
+		 html_canvas_element_new);
+
     create_class(ctx, gl, &SVGElementClassID, "SVGElement", ElementFuncs,
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &SVGElementClass,
 		 svg_element_new);
@@ -2610,6 +2752,11 @@ js_html_init(Buffer *buf)
 		 sizeof(XMLHttpRequestFuncs) / sizeof(XMLHttpRequestFuncs[0]), &XMLHttpRequestClass,
 		 xml_http_request_new);
 
+    create_class(ctx, gl, &CanvasRenderingContext2DClassID, "CanvasRenderingContext2D",
+		 CanvasRenderingContext2DFuncs,
+		 sizeof(CanvasRenderingContext2DFuncs) / sizeof(CanvasRenderingContext2DFuncs[0]),
+		 &CanvasRenderingContext2DClass, canvas_rendering_context2d_new);
+
     /* window object */
     state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
     state->win = newGeneralList();
@@ -2628,6 +2775,7 @@ js_html_init(Buffer *buf)
 			  JS_NewCFunction(ctx, ConsoleFuncs[i].func, ConsoleFuncs[i].name, 1));
     }
     JS_SetPropertyStr(ctx, gl, "console", console);
+    JS_SetPropertyStr(ctx, gl, "devicePixelRatio", JS_NewFloat64(ctx, 1.0));
 
     JS_FreeValue(ctx, gl);
 
@@ -2670,6 +2818,31 @@ js_eval(JSContext *ctx, char *script) {
 
 JSValue
 js_eval2(JSContext *ctx, char *script) {
+#if 0
+    char *beg = script;
+    char *p;
+    Str str = Strnew();
+    while ((p = strchr(beg, ';'))) {
+	Strcat_charp_n(str, beg, p - beg + 1);
+	if (strncmp(p + 1, "base64,", 7) != 0) {
+	    Strcat_charp(str, "\n");
+	}
+        beg = p + 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    char *beg = script;
+    char *p;
+    Str str = Strnew();
+    while ((p = strstr(beg, "er=function(e){"))) {
+	Strcat_charp_n(str, beg, p - beg + 15);
+	Strcat_charp(str, "confirm(Hn.a);");
+        beg = p + 15;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#endif
     return backtrace(ctx, script,
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 }
@@ -2819,6 +2992,36 @@ js_is_true(JSContext *ctx, JSValue value)
     return flag;
 }
 
+static char *
+to_upper(char *str) {
+    size_t len = strlen(str);
+    char *str2 = malloc(len + 1);
+    size_t i;
+    for (i = 0; i < len + 1; i++) {
+	if ('a' <= str[i] && str[i] <= 'z') {
+	    str2[i] = str[i] - 0x20;
+	} else {
+	    str2[i] = str[i];
+	}
+    }
+    return str2;
+}
+
+static char *
+to_lower(char *str) {
+    size_t len = strlen(str);
+    char *str2 = malloc(len + 1);
+    size_t i;
+    for (i = 0; i < len + 1; i++) {
+	if ('A' <= str[i] && str[i] <= 'Z') {
+	    str2[i] = str[i] + 0x20;
+	} else {
+	    str2[i] = str[i];
+	}
+    }
+    return str2;
+}
+
 void
 js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func)
 {
@@ -2855,11 +3058,11 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    xmlAttr *attr;
 
 	    if (!innerhtml &&
-		(strcasecmp((char*)node->name, "form") == 0 ||
-		 strcasecmp((char*)node->name, "select") == 0 ||
-		 strcasecmp((char*)node->name, "input") == 0 ||
-		 strcasecmp((char*)node->name, "textarea") == 0 ||
-		 strcasecmp((char*)node->name, "button") == 0)) {
+		(strcasecmp((char*)node->name, "FORM") == 0 ||
+		 strcasecmp((char*)node->name, "SELECT") == 0 ||
+		 strcasecmp((char*)node->name, "INPUT") == 0 ||
+		 strcasecmp((char*)node->name, "TEXTAREA") == 0 ||
+		 strcasecmp((char*)node->name, "BUTTON") == 0)) {
 		jsnode = JS_DupValue(ctx, jsparent); /* XXX should be document.forms[n] etc */
 		goto child_tree;
 	    }
@@ -2868,7 +3071,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    fprintf(fp, "element %s ", node->name);
 #endif
 
-	    if (strcasecmp((char*)node->name, "script") == 0) {
+	    if (strcasecmp((char*)node->name, "SCRIPT") == 0) {
 		JSValue scripts;
 		JSValue prop;
 
@@ -2878,10 +3081,12 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		JS_FreeValue(ctx, JS_Call(ctx, prop, scripts, 1, &jsnode));
 		JS_FreeValue(ctx, prop);
 		JS_FreeValue(ctx, scripts);
-	    } else if (strcasecmp((char*)node->name, "img") == 0) {
+	    } else if (strcasecmp((char*)node->name, "IMG") == 0) {
 		jsnode = html_image_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "CANVAS") == 0) {
+		jsnode = html_canvas_element_new(ctx, jsparent, 0, NULL);
 	    } else {
-		JSValue arg = JS_NewString(ctx, (char*)node->name);
+		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);
 		JS_FreeValue(ctx, arg);
 	    }
@@ -2896,7 +3101,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		    if (strcasecmp((char*)attr->name, "class") == 0) {
 			name = "className";
 		    } else {
-			name = (char*)attr->name;
+			name = to_lower((char*)attr->name);
 		    }
 		    value = JS_NewString(ctx, (char*)n->content);
 #ifdef DOM_DEBUG
@@ -2935,7 +3140,6 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	}
 
 	element_append_child(ctx, jsparent, 1, &jsnode);
-	JS_FreeValue(ctx, jsnode);
 
 #ifdef DOM_DEBUG
 	fclose(fp);
@@ -2994,18 +3198,37 @@ create_dom_tree(JSContext *ctx, char *filename, char *charset)
     }
 
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
+	JSValue element;
+	xmlAttr *attr;
+
 	if (strcmp((char*)node->name, "head") == 0) {
-	    create_tree(ctx, node->children, js_eval2(ctx, "document.head;"), 0);
+	    element = js_eval2(ctx, "document.head;");
 	} else if (strcmp((char*)node->name, "body") == 0) {
-	    create_tree(ctx, node->children, js_eval2(ctx, "document.body;"), 0);
-	}
+	    element = js_eval2(ctx, "document.body;");
+	} else {
 #ifdef DOM_DEBUG
-	else {
 	    FILE *fp = fopen("domlog.txt", "a");
 	    fprintf(fp, "(orphan element %s)\n", node->name);
 	    fclose(fp);
-	}
 #endif
+	    continue;
+	}
+
+	for (attr = node->properties; attr != NULL; attr = attr->next) {
+	    xmlNode *n;
+
+	    n = attr->children;
+	    if (n && n->type == XML_TEXT_NODE && strcasecmp((char*)attr->name, "onload") == 0) {
+		JS_SetPropertyStr(ctx, element, "onload", JS_NewString(ctx, (char*)n->content));
+#ifdef DOM_DEBUG
+		FILE *fp = fopen("domlog.txt", "a");
+		fprintf(fp, "body onload=%s\n", n->content);
+		fclose(fp);
+#endif
+	    }
+	}
+
+	create_tree(ctx, node->children, element, 0);
     }
 
     xmlFreeDoc(doc);

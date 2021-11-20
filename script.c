@@ -179,7 +179,7 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
 static void
 put_form_element(void *interp, int i, int j, FormItemList *fi)
 {
-    char *id, *n, *t, *v;
+    char *id, *n, *t, *v, *c;
     int k;
     FormSelectOptionItem *opt;
     ListItem *item;
@@ -196,15 +196,17 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	js_eval(interp, Sprintf("document.forms[%d].appendChild(new HTMLElement(\"%s\"));", i, t)->ptr);
     }
 
-    id = n = v = "";
+    id = n = v = c = "";
     if (fi->id && fi->id->length > 0)
 	id = fi->id->ptr;
     if (fi->name && fi->name->length > 0)
 	n = i2us(fi->name)->ptr;
     if (fi->value && fi->value->length > 0)
 	v = escape_value(i2us(fi->value))->ptr;
+    if (fi->class && fi->class->length > 0)
+	c = fi->class->ptr;
 
-    switch (fi->type) { /* TODO: ... */
+    switch (fi->type) {
     case FORM_INPUT_TEXT:
 	t = "text";
 	if (fi->init_value->length > 0)
@@ -264,6 +266,7 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	t = "file";
 	if (fi->init_value && fi->init_value->length > 0) /* TODO: Read Only */
 	    js_eval(interp, Sprintf("document.forms[%d].elements[%d].defaultValue = \"%s\";", i, j, escape_value(i2us(fi->init_value))->ptr)->ptr);
+	js_eval(interp, Sprintf("document.forms[%d].elements[%d].files = new FileList();", i, j)->ptr);
 	break;
     default:
 	t = ""; break;
@@ -273,6 +276,7 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
     js_eval(interp, Sprintf("document.forms[%d].elements[%d].name = \"%s\";", i, j, n)->ptr);
     js_eval(interp, Sprintf("document.forms[%d].elements[%d].type = \"%s\";", i, j, t)->ptr);
     js_eval(interp, Sprintf("document.forms[%d].elements[%d].value = \"%s\";", i, j, v)->ptr);
+    js_eval(interp, Sprintf("document.forms[%d].elements[%d].className = \"%s\";", i, j, c)->ptr);
 
     if (*n != '\0' && check_property_name(n)) {
 	JSValue val = js_eval2(interp, Sprintf("document.forms[%d].%s;", i, n)->ptr);
@@ -420,11 +424,12 @@ script_buf2js(Buffer *buf, void *interp)
 		"window.window = window;"
 		""
 		"function w3m_initDocumentTree(doc) {"
-		"  doc.documentElement = new HTMLElement(\"html\");"
+		"  doc.documentElement = new HTMLElement(\"HTML\");"
 		"  doc.children = doc.documentElement.children;"
 		"  doc.childNodes = doc.children; /* XXX NodeList */"
-		"  doc.head = new HTMLElement(\"head\");"
-		"  doc.body = new HTMLElement(\"body\");"
+		"  doc.head = new HTMLElement(\"HEAD\");"
+		"  doc.body = new HTMLElement(\"BODY\");"
+		"  doc.activeElement = doc.body;"
 		"  doc.documentElement.appendChild(doc.head);"
 		"  doc.documentElement.appendChild(doc.body);"
 		"}"
@@ -463,18 +468,26 @@ script_buf2js(Buffer *buf, void *interp)
 		"};"
 		""
 	        "document.createElement = function(tagname) {"
-		"  tagname = tagname.toLowerCase();"
-		"  if (tagname === \"form\") {"
+		"  tagname = tagname.toUpperCase();"
+		"  if (tagname === \"FORM\") {"
 		"    return new HTMLFormElement();"
-		"  } else if (tagname === \"img\") {"
+		"  } else if (tagname === \"IMG\") {"
 		"    return new HTMLImageElement();"
-		"  } else if (tagname === \"select\") {"
+		"  } else if (tagname === \"SELECT\") {"
 		"    return new HTMLSelectElement();"
-		"  } else if (tagname === \"script\") {"
+		"  } else if (tagname === \"SCRIPT\") {"
 		"    return new HTMLScriptElement();"
+		"  } else if (tagname === \"CANVAS\") {"
+		"    return new HTMLCanvasElement();"
 		"  } else {"
 		"    return new HTMLElement(tagname);"
 		"  }"
+		"};"
+		""
+		"document.createElementNS = function(namespaceURI, tagname) {"
+		"  let element = document.createElement(tagname);"
+		"  element.namespaceURI = namespaceURI;"
+		"  return element;"
 		"};"
 		""
 		"/* see element_text_content_set() in js_html.c */"
@@ -511,7 +524,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  if (hit != null) {"
 		"    return hit;"
 		"  }"
-		"  let element = new HTMLElement(\"span\");"
+		"  let element = new HTMLElement(\"SPAN\");"
 		"  element.id = id;"
 		"  element.value = \"\";"
 		"  return document.body.appendChild(element);"
@@ -521,7 +534,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"function w3m_getElementsByTagName(element, name, elements) {"
 		"  for (let i = 0; i < element.children.length; i++) {"
 		"    if (name === \"*\" ? element.children[i].nodeType == 1 :"
-		"                         element.children[i].tagName.toLowerCase() === name) {"
+		"                         element.children[i].tagName === name.toUpperCase()) {"
 		"      elements.push(element.children[i]);"
 		"    }"
 		"    w3m_getElementsByTagName(element.children[i], name, elements);"
@@ -529,19 +542,19 @@ script_buf2js(Buffer *buf, void *interp)
 		"}"
 		""
 		"document.getElementsByTagName = function(name) {"
-		"  name = name.toLowerCase();"
-		"  if (name === \"form\") {"
-		"    return document.forms;"
+		"  name = name.toUpperCase();"
+		"  if (name === \"FORM\") {"
+		"    return this.forms;"
 		"  } else {"
 		"    let elements = new HTMLCollection();"
-		"    if (name === \"html\") {"
+		"    if (name === \"HTML\") {"
 		"      elements.push(document.documentElement);"
 		"    } else {"
-		"      w3m_getElementsByTagName(document, name, elements);"
+		"      w3m_getElementsByTagName(this, name, elements);"
 #ifndef USE_LIBXML2
 		"      if (elements.length == 0) {"
 		"        if (name === \"*\") {"
-		"          name = \"span\";"
+		"          name = \"SPAN\";"
 		"        }"
 		"        let element = new HTMLElement(name);"
 		"        element.value = \"\";"
@@ -568,7 +581,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  w3m_getElementsByName(document, name, elements);"
 #ifndef USE_LIBXML2
 		"  if (elements.length == 0) {"
-		"    let element = new HTMLElement(\"span\");"
+		"    let element = new HTMLElement(\"SPAN\");"
 		"    element.name = name;"
 		"    element.value = \"\";"
 		"    document.body.appendChild(element);"
@@ -578,10 +591,28 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return elements;"
 		"};"
 		""
+		"function w3m_matchClassName(class1, class2) {"
+		"  let class1_array = class1.split(\" \");"
+		"  for (let c of class2.split(\" \")) {"
+		"    let i;"
+		"    for (i = 0; i < class1_array.length; i++) {"
+		"      if (c === class1_array[i]) {"
+		"        break;"
+		"      }"
+		"    }"
+		"    if (i == class1_array.length) {"
+		"      return false;"
+		"    }"
+		"  }"
+		"  return true;"
+		"}"
+		""
 		"function w3m_getElementsByClassName(element, name, elements) {"
 		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (element.children[i].className === name) {"
-		"      elements.push(element.children[i]);"
+		"    if (element.children[i].className) {"
+		"      if (w3m_matchClassName(element.children[i].className, name)) {"
+		"        elements.push(element.children[i]);"
+		"      }"
 		"    }"
 		"    w3m_getElementsByClassName(element.children[i], name, elements);"
 		"  }"
@@ -589,10 +620,10 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"document.getElementsByClassName = function(name) {"
 		"  let elements = new HTMLCollection();"
-		"  w3m_getElementsByClassName(document, name, elements);"
+		"  w3m_getElementsByClassName(this, name, elements);"
 #ifndef USE_LIBXML2
 		"  if (elements.length == 0) {"
-		"    let element = new HTMLElement(\"span\");"
+		"    let element = new HTMLElement(\"SPAN\");"
 		"    element.className = name;"
 		"    element.value = \"\";"
 		"    document.body.appendChild(element);"
@@ -602,73 +633,112 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return elements;"
 		"};"
 		""
-		"function w3m_parseSelector(sel) {"
-		"  let array = new Array(3);"
-		"  array[0] = array[1] = array[2] = null;"
-		"  let tmp = sel.match(/^[^,\\[\\] >]+/);"
-		"  if (tmp == null) {"
-		"    return array;"
-		"  }"
-		"  sel = tmp[0];"
-		"  tmp = sel.match(/^[^.#]+/); /* tag */"
-		"  if (tmp != null) {"
-		"    array[0] = tmp[0];"
-		"  }"
-		"  tmp = sel.match(/\\.[^.#]+/); /* class */"
-		"  if (tmp != null) {"
-		"    array[1] = tmp[0];"
-		"  }"
-		"  tmp = sel.match(/#[^.#]+/); /* id */"
-		"  if (array[2] != null) {"
-		"    array[2] = tmp[0];"
+		"function w3m_parseSelector(selector) {"
+		"  let array = selector.split(/[ >+]+/);"
+		"  for (let i = 0; i < array.length; i++) {"
+		"    if (array[i].match((/^[>~+|]+$/)) != null) {"
+		"      console.log(\"Maybe unrecognized CSS selector: \" + array[i]);"
+		"    }"
+		"    let sel = new Object();"
+		"    sel.tag = array[i].match(/^[^.#\\[]+/); /* tag */"
+		"    if (sel.tag != null) {"
+		"      sel.tag = sel.tag[0].toUpperCase();"
+		"    }"
+		"    sel.class = array[i].match(/\\.[^.#\\[]+/); /* class */"
+		"    if (sel.class != null) {"
+		"      sel.class = sel.class[0].substring(1);"
+		"    }"
+		"    sel.id = array[i].match(/#[^.#\\[]+/); /* id */"
+		"    if (sel.id != null) {"
+		"      sel.id = sel.id[0].substring(1);"
+		"    }"
+		"    sel.attr_key = array[i].match(/\\[.*\\]/);"
+		"    if (sel.attr_key != null) {"
+		"      let attr = sel.attr_key[0].substring(1, sel.attr_key[0].length - 1);"
+		"      let attr_pair = attr.split(/[~|^$*]*=/);"
+		"      sel.attr_key = attr_pair[0];"
+		"      if (attr_pair.length > 1) {"
+		"        sel.attr_value = attr_pair[1].match(/[^\"]+/)[0];"
+		"      } else {"
+		"        sel.attr_value = null;"
+		"      }"
+		"    } else {"
+		"      sel.attr_value = null;"
+		"    }"
+		"    array[i] = sel;"
 		"  }"
 		"  return array;"
 		"}"
 		""
-		"document.querySelectorAll = function(sel) {"
-		"  let array = w3m_parseSelector(sel);"
-		"  if (array[0] != null) {"
-		"    return document.getElementsByTagName(array[0]);"
-		"  } else if (array[1] != null) {"
-		"    return document.getElementsByClassName(array[1].substring(1));"
-		"  } else {"
-		"    let elements = new NodeList();"
-#ifdef USE_LIBXML2
-		"    if (array[2] != null) {"
-		"      let element = document.getElementById(array[2].substring(1));"
-		"      if (element != null) {"
-		"        elements.push(element);"
-		"      }"
+		"function w3m_querySelectorAllIntern(element, sel, elements) {"
+		"  if (sel.tag) {"
+		"    w3m_getElementsByTagName(element, sel.tag, elements);"
+		"  } else if (sel.class) {"
+		"    w3m_getElementsByClassName(element, sel.class, elements);"
+		"  } else if (sel.id) {"
+		"    let e = w3m_getElementById(element, sel.id);"
+		"    if (e) {"
+		"      elements.push(e);"
 		"    }"
-#else
-		"    if (array[2] != null) {"
-		"      elements.push(document.getElementById(array[2].substring(1)));"
-		"    } else {"
-		"      elements.push(document.body.appendChild(new HTMLElement(\"span\")));"
-		"    }"
-#endif
-		"    return elements;"
 		"  }"
+		"}"
+		""
+		"function w3m_matchAttr(element, attr_key, attr_value) {"
+		"  if (element[attr_key]) {"
+		"    if (attr_value == null || attr_value == element[attr_key]) {"
+		"      return true;"
+		"    }"
+		"  }"
+		"  return false;"
+		"}"
+		""
+		"function w3m_querySelectorAll(element, sels, elements) {"
+		"  if (sels[0]) {"
+		"    for (let i = 0; i < element.children.length; i++) {"
+		"      if ((sels[0].tag == null || sels[0].tag == element.children[i].tagName) &&"
+		"          (sels[0].class == null ||"
+		"           w3m_matchClassName(element.children[i].className, sels[0].class)) &&"
+		"          (sels[0].id == null || sels[0].id == element.children[i].id) &&"
+		"          (sels[0].attr_key == null ||"
+		"           w3m_matchAttr(element.children[i], sels[0].attr_key, sels[0].attr_value))) {"
+	        "        if (sels[1]) {"
+		"          w3m_querySelectorAllIntern(element.children[i], sels[1], elements);"
+		"        } else {"
+		"          elements.push(element.children[i]);"
+		"        }"
+		"      }"
+		"      w3m_querySelectorAll(element.children[i], sels, elements);"
+		"    }"
+		"  }"
+		"}"
+		""
+		"document.querySelectorAll = function(sel) {"
+		"  let elements = new NodeList();"
+		"  for (let s of sel.split(/ *,/)) {"
+		"    /* XXX */"
+		"    if (s.toUpperCase() === \"HTML\") {"
+		"      elements.push(document.documentElement);"
+		"    } else {"
+		"      w3m_querySelectorAll(document, w3m_parseSelector(s), elements);"
+		"    }"
+		"  }"
+#ifndef USE_LIBXML2
+		"  if (elements.length == 0) {"
+		"      let element = new HTMLElement(\"SPAN\");"
+		"      element.value = \"\";"
+		"      elements.push(document.body.appendChild(element));"
+		"  }"
+#endif
+		"  return elements;"
 		"};"
 		""
 		"document.querySelector = function(sel) {"
-		"  let array = w3m_parseSelector(sel);"
-		"  let element;"
-		"  if (array[0] != null) {"
-		"    element = document.getElementsByTagName(array[0])[0];"
-		"  } else if (array[1] != null) {"
-		"    element = document.getElementsByClassName(array[1])[0];"
-		"  } else if (array[2] != null) {"
-		"    element = document.getElementById(array[2]);"
-		"  } else {"
-#ifdef USE_LIBXML2
+		"  let elements = this.querySelectorAll(sel);"
+		"  if (elements.length == 0) {"
 		"    return null;"
-#else
-		"    element = document.body.appendChild(new HTMLElement(\"span\"));"
-		"    element.value = \"\";"
-#endif
+		"  } else {"
+		"    return elements[0];"
 		"  }"
-		"  return element;"
 		"};"
 		""
 		"document.createEvent = function() {"
@@ -683,32 +753,44 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return null;"
 		"};"
 		""
+		"var w3m_intervalID = 1;"
 		"window.setInterval = window.setTimeout = function(fn, tm) {"
 		"  if (typeof fn == \"string\") {"
 		"    document.addEventListener(\"DOMContentLoaded\", new Function(fn));"
 		"  } else if (typeof fn == \"function\") {"
 		"    document.addEventListener(\"DOMContentLoaded\", fn);"
 		"  }"
+		"  return w3m_intervalID++;"
 		"};"
 		""
-		"window.clearTimeout = function(id) { ; };"
+		"window.clearInterval = window.clearTimeout = function(id) { ; };"
+		""
+		"window.postMessage = function(message, origin) { ; };"
 		""
 		"performance.now = function() {"
 		"  /* performance.now() should return DOMHighResTimeStamp */"
 		"  return Date.now();"
 		"};"
 		""
+		"var w3m_storage = new Object();"
 		"sessionStorage.getItem = localStorage.getItem = function(key) {"
-		"  return null;"
+		"  return w3m_storage[key];"
 		"};"
 		""
-		"sessionStorage.setItem = localStorage.setItem = function(key, value) { ; };"
+		"sessionStorage.setItem = localStorage.setItem = function(key, value) {"
+		"  w3m_storage[key] = value;"
+		"};"
 		""
-		"sessionStorage.removeItem = localStorage.removeItem = function(key) { ; };"
+		"sessionStorage.removeItem = localStorage.removeItem = function(key) {"
+		"  w3m_storage[key] = null;"
+		"};"
 		""
 		"function Image() {"
 		"  return new HTMLImageElement();"
 		"}"
+		""
+		"var dataTransfer = new Object();"
+		"dataTransfer.files = new FileList();"
 		""
 		"function w3m_textNodesToStr(node) {"
 		"  let str = \"\";"
@@ -973,7 +1055,7 @@ get_form_element(Buffer *buf, void *interp, int i, int j, FormItemList *fi)
     Str str;
     int flag;
     int new_idx;
-    char *keyev[] = { "keypress", "keyup", "keydown" };
+    char *keyev[] = { "keypress", "keyup", "keydown", "input" };
     int idx;
 
     val = js_eval2(interp, Sprintf("document.forms[%d].children[%d].value;", i, j)->ptr);
@@ -986,12 +1068,12 @@ get_form_element(Buffer *buf, void *interp, int i, int j, FormItemList *fi)
 	}
     }
 
-    str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].onkeyup;", i, j)->ptr);
     reset_func_list(fi->onkeyup);
-    if (str != NULL) {
-	push_func(&fi->onkeyup, str);
-    }
     for (idx = 0; idx < sizeof(keyev) / sizeof(keyev[0]); idx++) {
+	str = js_get_function(interp, Sprintf("document.forms[%d].elements[%d].on%s;", i, j, keyev[idx])->ptr);
+	if (str != NULL) {
+	    push_func(&fi->onkeyup, str);
+	}
 	while ((str = get_form_element_event(interp, i, j, keyev[idx])) != NULL) {
 	    push_func(&fi->onkeyup, str);
 	}
@@ -1212,6 +1294,8 @@ set_cookie(char *p, ParsedURL *pu)
 }
 #endif
 
+int form_reset_in_script;
+
 static Str
 script_js2buf(Buffer *buf, void *interp)
 {
@@ -1407,6 +1491,7 @@ script_js2buf(Buffer *buf, void *interp)
 
 	if (changed) {
 	    formResetBuffer(buf, buf->formitem);
+	    form_reset_in_script = 1;
 	}
     }
 
@@ -1486,7 +1571,11 @@ onload(void *interp)
 	    "    }"
 	    "  }"
 	    "  if (obj.onload != undefined) {"
-	    "    obj.onload();"
+	    "    if (typeof obj.onload == \"string\") {"
+	    "      eval(obj.onload);"
+	    "    } else {"
+	    "      obj.onload();"
+	    "    }"
 	    "    obj.onload = undefined;"
 	    "  }"
 	    "}"

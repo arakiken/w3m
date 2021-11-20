@@ -87,6 +87,7 @@ typedef struct form_item_list {
     Str id;
     Str name;
     Str value, init_value;
+    Str class;
     int checked, init_checked;
     int accept;
     int size;

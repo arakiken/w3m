@@ -84,6 +84,8 @@ static int cur_textarea_readonly;
 static int n_textarea;
 static int ignore_nl_textarea;
 static char *cur_textarea_id;
+static char *cur_textarea_class;
+static char *cur_textarea_onchange;
 int max_textarea = MAX_TEXTAREA;
 
 int http_response_code;
@@ -3673,7 +3675,7 @@ Str
 process_input(struct parsed_tag *tag)
 {
     int i = 20, v, x, y, z, iw, ih, size = 20;
-    char *q, *p, *r, *p2, *p3, *p4, *p5, *p6, *p7, *s, *id;
+    char *q, *p, *r, *p2, *p3, *p4, *p5, *p6, *p7, *p8, *s, *id, *class;
     Str tmp = NULL;
     char *qq = "";
     int qlen = 0;
@@ -3693,6 +3695,8 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_NAME, &r);
     id = NULL;
     parsedtag_get_value(tag, ATTR_ID, &id);
+    class = NULL;
+    parsedtag_get_value(tag, ATTR_CLASS, &class);
     parsedtag_get_value(tag, ATTR_SIZE, &size);
     if (size > MAX_INPUT_SIZE)
 	    size = MAX_INPUT_SIZE;
@@ -3709,6 +3713,8 @@ process_input(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_ONKEYPRESS, &p6);
     p7 = NULL;
     parsedtag_get_value(tag, ATTR_ONCHANGE, &p7);
+    p8 = NULL;
+    parsedtag_get_value(tag, ATTR_ONINPUT, &p8);
     x = parsedtag_exists(tag, ATTR_CHECKED);
     y = parsedtag_exists(tag, ATTR_ACCEPT);
     z = parsedtag_exists(tag, ATTR_READONLY);
@@ -3766,6 +3772,9 @@ process_input(struct parsed_tag *tag)
     if (id) {
 	Strcat(tmp, Sprintf(" id=\"%s\"", html_quote(id)));
     }
+    if (class) {
+	Strcat(tmp, Sprintf("  class=\"%s\"", html_quote(class)));
+    }
     if (x)
 	Strcat_charp(tmp, " checked");
     if (y)
@@ -3786,6 +3795,9 @@ process_input(struct parsed_tag *tag)
     }
     if (p7) {
 	Strcat(tmp, Sprintf(" onchange=\"%s\"", p7));
+    }
+    if (p8) {
+	Strcat(tmp, Sprintf(" oninput=\"%s\"", p8));
     }
     Strcat_char(tmp, '>');
 
@@ -3890,7 +3902,7 @@ Str
 process_button(struct parsed_tag *tag)
 {
     Str tmp = NULL;
-    char *p, *q, *r, *qq = "", *onclick, *id;
+    char *p, *q, *r, *qq = "", *onclick, *id, *class;
     int qlen, v;
 
     if (cur_form_id < 0) {
@@ -3908,6 +3920,8 @@ process_button(struct parsed_tag *tag)
     parsedtag_get_value(tag, ATTR_NAME, &r);
     id = NULL;
     parsedtag_get_value(tag, ATTR_ID, &id);
+    class = NULL;
+    parsedtag_get_value(tag, ATTR_CLASS, &class);
     onclick = NULL;
     parsedtag_get_value(tag, ATTR_ONCLICK, &onclick);
 
@@ -3949,6 +3963,9 @@ process_button(struct parsed_tag *tag)
                        html_quote(r), qq));
     if (id) {
 	Strcat(tmp, Sprintf(" id=\"%s\"", id));
+    }
+    if (class) {
+	Strcat(tmp, Sprintf(" class=\"%s\"", class));
     }
     if (onclick) {
 	Strcat(tmp, Sprintf(" onclick=\"%s\"", onclick));
@@ -4197,6 +4214,10 @@ process_textarea(struct parsed_tag *tag, int width)
     textarea_str[n_textarea] = Strnew();
     cur_textarea_id = NULL;
     parsedtag_get_value(tag, ATTR_ID, &cur_textarea_id);
+    cur_textarea_class = NULL;
+    parsedtag_get_value(tag, ATTR_CLASS, &cur_textarea_class);
+    cur_textarea_onchange = NULL;
+    parsedtag_get_value(tag, ATTR_ONCHANGE, &cur_textarea_onchange);
     ignore_nl_textarea = TRUE;
 
     return tmp;
@@ -4221,6 +4242,10 @@ process_n_textarea(void)
 			cur_textarea_rows - 1, n_textarea));
     if (cur_textarea_id)
 	Strcat(tmp, Sprintf(" id=\"%s\"", cur_textarea_id));
+    if (cur_textarea_class)
+	Strcat(tmp, Sprintf(" class=\"%s\"", cur_textarea_class));
+    if (cur_textarea_onchange)
+	Strcat(tmp, Sprintf(" onchange=\"%s\"", cur_textarea_onchange));
     if (cur_textarea_readonly)
 	Strcat_charp(tmp, " readonly");
     Strcat_charp(tmp, "><u>");
@@ -4628,7 +4653,7 @@ process_html_str(Buffer *buf, char *html_str)
 static void
 eval_script(Buffer *buf)
 {
-    if (buf->scripts != NULL) {
+    if (buf->scripts != NULL && buf->need_reshape == FALSE) {
 	Str ret = eval_script_intern(buf, 1);
 	buf->scripts = NULL;
 	if (ret) {

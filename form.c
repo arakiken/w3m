@@ -132,6 +132,8 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 	item->name = Strnew_charp(p);
     if (parsedtag_get_value(tag, ATTR_VALUE, &p))
 	item->value = item->init_value = Strnew_charp(p);
+    if (parsedtag_get_value(tag, ATTR_CLASS, &p))
+	item->class = Strnew_charp(p);
     item->checked = item->init_checked = parsedtag_exists(tag, ATTR_CHECKED);
     item->accept = parsedtag_exists(tag, ATTR_ACCEPT);
     parsedtag_get_value(tag, ATTR_SIZE, &item->size);
@@ -174,6 +176,10 @@ formList_addInput(struct form_list *fl, struct parsed_tag *tag)
 	item->onkeyup = newGeneralList();
 	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));
     } else if (parsedtag_get_value(tag, ATTR_ONKEYDOWN, &p)) {
+	/* XXX */
+	item->onkeyup = newGeneralList();
+	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));
+    } else if (parsedtag_get_value(tag, ATTR_ONINPUT, &p)) {
 	/* XXX */
 	item->onkeyup = newGeneralList();
 	pushValue(item->onkeyup, wc_conv(p, InnerCharset, WC_CES_UTF_8));

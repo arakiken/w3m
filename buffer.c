@@ -514,6 +514,9 @@ reshapeBuffer(Buffer *buf)
 #ifdef USE_M17N
     wc_uint8 old_auto_detect = WcOption.auto_detect;
 #endif
+#ifdef USE_SCRIPT
+    extern int form_reset_in_script;
+#endif
 
     if (!buf->need_reshape)
 	return;
@@ -564,6 +567,9 @@ reshapeBuffer(Buffer *buf)
     WcOption.auto_detect = WC_OPT_DETECT_OFF;
     UseContentCharset = FALSE;
 #endif
+#ifdef USE_SCRIPT
+    form_reset_in_script = 0;
+#endif
     if (is_html_type(buf->type))
 	loadHTMLBuffer(&f, buf);
     else
@@ -610,7 +616,16 @@ reshapeBuffer(Buffer *buf)
     if (buf->real_scheme == SCM_NNTP || buf->real_scheme == SCM_NEWS)
 	reAnchorNewsheader(buf);
 #endif
-    formResetBuffer(buf, sbuf.formitem);
+#ifdef USE_SCRIPT
+    /*
+     * This check is not necessary if 'buf->need_reshape == FALSE' is
+     * removed from eval_script() in file.c.
+     */
+    if (form_reset_in_script) {
+	form_reset_in_script = 0;
+    } else
+#endif
+	formResetBuffer(buf, sbuf.formitem);
 }
 
 /* shallow copy */

@@ -334,6 +334,8 @@ typedef struct {
 #define ATTR_ONRESET		58
 #define ATTR_ONSELECT		59
 #define ATTR_ONCHANGE		60
+#define ATTR_ONINPUT		61
+#define ATTR_CLASS		62
 
 /* Internal attribute */
 #define ATTR_XOFFSET		65
