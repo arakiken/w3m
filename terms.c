@@ -879,6 +879,10 @@ get_pixel_per_cell(int *ppc, int *ppl)
     }
 #endif
 
+    if (ttyf == NULL) {
+	return 0;
+    }
+
     fputs("\x1b[14t\x1b[18t",ttyf); flush_tty();
 
     p = buf;
