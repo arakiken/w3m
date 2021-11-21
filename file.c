@@ -4350,14 +4350,20 @@ load_script_src(char *url, ParsedURL *baseURL)
 		    saveBuffer(b, f, TRUE);
 		    fclose(f);
 		} else {
+#ifdef SCRIPT_DEBUG
 		    err = 1;
+#endif
 		}
 	    } else {
+#ifdef SCRIPT_DEBUG
 		err = 2;
+#endif
 	    }
 	    discardBuffer(b);
 	} else {
+#ifdef SCRIPT_DEBUG
 	    err = 3;
+#endif
 	}
 
 #ifdef SCRIPT_DEBUG
