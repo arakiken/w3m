@@ -128,7 +128,7 @@ check_property_name(char *name)
 {
     while (*name) {
 	if (*name == ':' || *name == '.' || *name == '[' || *name == ']' || *name == ',' ||
-	    *name == '=' || *name == '?') {
+	    *name == '=' || *name == '?' || *name == '-') {
 	    return 0;
 	}
 	name++;
@@ -198,7 +198,7 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 
     id = n = v = c = "";
     if (fi->id && fi->id->length > 0)
-	id = fi->id->ptr;
+	id = i2us(fi->id)->ptr;
     if (fi->name && fi->name->length > 0)
 	n = i2us(fi->name)->ptr;
     if (fi->value && fi->value->length > 0)
@@ -365,7 +365,7 @@ update_forms(Buffer *buf, void *interp)
 	    if (fl->name != NULL)
 		n = i2uc(fl->name);
 	    if (fl->id != NULL)
-		id = fl->id;
+		id = i2uc(fl->id);
 	    if (fl->target != NULL)
 		t = fl->target;
 
@@ -417,6 +417,8 @@ script_buf2js(Buffer *buf, void *interp)
     ret = js_eval2(interp, "document;");
     if (js_is_exception(ret)) {
 	js_eval(interp,
+		"class URL extends Location {}"
+		""
 		"var self = globalThis;"
 		"var window = globalThis;"
 		"window.parent = window;"
@@ -485,7 +487,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"};"
 		""
 		"document.createElementNS = function(namespaceURI, tagname) {"
-		"  let element = document.createElement(tagname);"
+		"  let element = this.createElement(tagname);"
 		"  element.namespaceURI = namespaceURI;"
 		"  return element;"
 		"};"
@@ -745,6 +747,13 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return new Object();"
 		"};"
 		""
+		"document.createRange = function() {"
+		"  let r = new Range();"
+		"  r.setStart(this, 0);"
+		"  r.setEnd(this, 0);"
+		"  return r;"
+		"};"
+		""
 		"window.requestAnimationFrame = function(callback) {"
 		"  return null;"
 		"};"
@@ -766,6 +775,8 @@ script_buf2js(Buffer *buf, void *interp)
 		"window.clearInterval = window.clearTimeout = function(id) { ; };"
 		""
 		"window.postMessage = function(message, origin) { ; };"
+		""
+		"window.getSelection = function() { return \"\"; };"
 		""
 		"performance.now = function() {"
 		"  /* performance.now() should return DOMHighResTimeStamp */"
@@ -1430,7 +1441,7 @@ script_js2buf(Buffer *buf, void *interp)
 		value2 = js_eval2(interp, Sprintf("document.forms[%d].id;", i)->ptr);
 		cstr = js_get_cstr(interp, value2);
 		if (cstr != NULL) {
-		    fl->id = cstr;
+		    fl->id = u2ic(cstr);
 		}
 
 		str = js_get_function(interp, Sprintf("document.forms[%d].onsubmit;", i)->ptr);
@@ -1558,7 +1569,9 @@ onload(void *interp)
 	    "     * The case of calling removeEventListener() is not considered."
 	    "     */"
 	    "    for (let i = obj.myevents.length - 1; i >= 0; i--) {"
-	    "      if (obj.myevents[i].type === \"load\" ||"
+	    "      if (obj.myevents[i].type === \"loadstart\" ||"
+	    "          obj.myevents[i].type === \"load\" ||"
+	    "          obj.myevents[i].type === \"loadend\" ||"
 	    "          obj.myevents[i].type === \"DOMContentLoaded\" ||"
 	    "          obj.myevents[i].type === \"visibilitychange\") {"
 	    "        if (typeof obj.myevents[i].listener == \"function\") {"
@@ -1570,13 +1583,41 @@ onload(void *interp)
 	    "      }"
 	    "    }"
 	    "  }"
+	    "  if (obj.onloadstart != undefined) {"
+	    "    if (typeof obj.onloadstart == \"string\") {"
+	    "      try {"
+	    "        eval(obj.onloadstart);"
+	    "      } catch (e) {"
+	    "        console.log(e.message);"
+	    "      }"
+	    "    } else {"
+	    "      obj.onloadstart();"
+	    "    }"
+	    "    obj.onloadstart = undefined;"
+	    "  }"
 	    "  if (obj.onload != undefined) {"
 	    "    if (typeof obj.onload == \"string\") {"
-	    "      eval(obj.onload);"
+	    "      try {"
+	    "        eval(obj.onload);"
+	    "      } catch (e) {"
+	    "        console.log(e.message);"
+	    "      }"
 	    "    } else {"
 	    "      obj.onload();"
 	    "    }"
 	    "    obj.onload = undefined;"
+	    "  }"
+	    "  if (obj.onloadend != undefined) {"
+	    "    if (typeof obj.onloadend == \"string\") {"
+	    "      try {"
+	    "        eval(obj.onloadend);"
+	    "      } catch (e) {"
+	    "        console.log(e.message);"
+	    "      }"
+	    "    } else {"
+	    "      obj.onloadend();"
+	    "    }"
+	    "    obj.onloadend = undefined;"
 	    "  }"
 	    "}"
 	    "function w3m_element_onload(element) {"

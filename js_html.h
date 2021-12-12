@@ -63,6 +63,7 @@ typedef struct _XMLHttpRequestState {
     TextList *extra_headers;
     int override_content_type;
     int override_user_agent;
+    TextList *response_headers;
 } XMLHttpRequestState;
 
 #define i2us(s) wc_Str_conv(s, InnerCharset, WC_CES_UTF_8)

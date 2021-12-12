@@ -155,11 +155,12 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 #ifdef SCRIPT_DEBUG
     str = JS_ToCString(ctx, argv[0]);
 #if 1
-    if (strcmp(str, "load") != 0 && strcmp(str, "DOMContentLoaded") != 0 &&
+    if (strcmp(str, "loadstart") != 0 && strcmp(str, "load") != 0 && strcmp(str, "loadend") != 0 &&
+	strcmp(str, "DOMContentLoaded") != 0 &&
 	strcmp(str, "visibilitychange") != 0 && strcmp(str, "submit") != 0 &&
 	strcmp(str, "click") != 0 && strcmp(str, "keypress") != 0 &&
 	strcmp(str, "keydown") != 0 && strcmp(str, "keyup") != 0 &&
-	strcmp(str, "focus") != 0)
+	strcmp(str, "input") != 0 && strcmp(str, "focus") != 0)
 #endif
     {
 	FILE *fp = fopen("scriptlog.txt", "a");
@@ -1047,6 +1048,12 @@ init_children(JSContext *ctx, JSValue obj, const char *tagname)
     }
 }
 
+static JSValue
+style_get_property_value(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_NewString(ctx, "");
+}
+
 static void
 set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
@@ -1096,6 +1103,10 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, style, "fontSize",
 		      JS_NewString(ctx, Sprintf("%dpx", term_ppl)->ptr));
     JS_SetPropertyStr(ctx, style, "zoom", JS_NewString(ctx, "normal"));
+    JS_SetPropertyStr(ctx, style, "backgroundColor", JS_NewString(ctx, "black"));
+    JS_SetPropertyStr(ctx, style, "foregroundColor", JS_NewString(ctx, "white"));
+    JS_SetPropertyStr(ctx, style, "getPropertyValue",
+		      JS_NewCFunction(ctx, style_get_property_value, "getPropertyValue", 1));
     JS_SetPropertyStr(ctx, obj, "style", style);
 
     JS_SetPropertyStr(ctx, obj, "offsetWidth", JS_NewInt32(ctx, term_ppc));
@@ -1510,6 +1521,20 @@ element_get_bounding_client_rect(JSContext *ctx, JSValueConst jsThis, int argc, 
 }
 
 static JSValue
+element_get_client_rects(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue rects = JS_NewArray(ctx);
+    JSValue prop = JS_GetPropertyStr(ctx, rects, "push");
+    JSValue rect = element_get_bounding_client_rect(ctx, jsThis, argc, argv);
+
+    JS_FreeValue(ctx, JS_Call(ctx, prop, rects, 1, &rect));
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, rect);
+
+    return rects;
+}
+
+static JSValue
 element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
@@ -1772,6 +1797,47 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 }
 
 static JSValue
+contains(JSContext *ctx, JSValueConst jsThis, JSValueConst other)
+{
+    JSValue children = JS_GetPropertyStr(ctx, jsThis, "childNodes");
+    int i;
+    JSValue ret = JS_FALSE;
+
+    for (i = 0; ;i++) {
+	JSValue child = JS_GetPropertyUint32(ctx, children, i);
+	if (!JS_IsObject(child)) {
+	    break;
+	}
+	/* XXX */
+	if (JS_VALUE_GET_PTR(other) == JS_VALUE_GET_PTR(child)) {
+	    ret = JS_TRUE;
+	} else {
+	    ret = contains(ctx, child, other);
+	}
+
+	JS_FreeValue(ctx, child);
+
+	if (JS_VALUE_GET_BOOL(ret) == JS_VALUE_GET_BOOL(JS_TRUE)) {
+	    break;
+	}
+    }
+
+    JS_FreeValue(ctx, children);
+
+    return ret;
+}
+
+static JSValue
+element_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc < 1) {
+	return JS_EXCEPTION;
+    }
+
+    return contains(ctx, jsThis, argv[0]);
+}
+
+static JSValue
 element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
 #ifdef USE_LIBXML2
@@ -1835,6 +1901,18 @@ element_click(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 }
 
 static JSValue
+element_focus_or_blur(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_select(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
 element_get_context(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     return canvas_rendering_context2d_new(ctx, jsThis, 0, NULL);
@@ -1855,6 +1933,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
     JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
     JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
+    JS_CFUNC_DEF("contains", 1, element_contains),
 
     /* EventTarget */
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
@@ -1872,6 +1951,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("attributes", element_attributes_get, NULL),
     JS_CFUNC_DEF("matches", 1, element_matches),
     JS_CFUNC_DEF("getBoundingClientRect", 1, element_get_bounding_client_rect),
+    JS_CFUNC_DEF("getClientRects", 1, element_get_client_rects),
     JS_CFUNC_DEF("getElementsByTagName", 1, element_get_elements_by_tag_name),
     JS_CFUNC_DEF("getElementsByTagNameNS", 1, element_get_elements_by_tag_name),
     JS_CFUNC_DEF("getElementsByClassName", 1, element_get_elements_by_class_name),
@@ -1884,6 +1964,11 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("offsetParent", element_offset_parent_get, NULL),
     JS_CGETSET_DEF("innerText", element_text_content_get, element_text_content_set),
     JS_CFUNC_DEF("click", 1, element_click),
+    JS_CFUNC_DEF("focus", 1, element_focus_or_blur),
+    JS_CFUNC_DEF("blur", 1, element_focus_or_blur),
+
+    /* XXX HTMLInputElement */
+    JS_CFUNC_DEF("select", 1, element_select),
 
     /* XXX HTMLIFrameElement only */
     JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
@@ -2239,6 +2324,12 @@ document_referrer_get(JSContext *ctx, JSValueConst jsThis)
     return JS_NewString(ctx, url);
 }
 
+static JSValue
+document_has_focus(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_TRUE;
+}
+
 static const JSCFunctionListEntry DocumentFuncs[] = {
     /* Node (see ElementFuncs) */
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
@@ -2249,8 +2340,12 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
     JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
     JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
+    JS_CGETSET_DEF("nextSibling", element_next_sibling_get, NULL),
+    JS_CGETSET_DEF("previousSibling", element_previous_sibling_get, NULL),
     JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
     JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
+    JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
+    JS_CFUNC_DEF("contains", 1, element_contains),
 
     /* EventTarget */
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
@@ -2265,6 +2360,7 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CGETSET_DEF("location", document_location_get, document_location_set),
     JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set),
     JS_CGETSET_DEF("referrer", document_referrer_get, NULL),
+    JS_CFUNC_DEF("hasFocus", 1, document_has_focus),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLDocument", JS_PROP_CONFIGURABLE),
 };
@@ -2377,6 +2473,7 @@ xml_http_request_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     state->extra_headers = newTextList();
     state->override_content_type = override_content_type;
     state->override_user_agent = override_user_agent;
+    state->response_headers = NULL;
 
     JS_SetPropertyStr(ctx, jsThis, "readyState", JS_NewInt32(ctx, 1));
 
@@ -2515,6 +2612,7 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     header_buf = newBuffer(INIT_BUFFER_WIDTH);
     readHeader(&uf, header_buf, FALSE, &pu);
     JS_SetPropertyStr(ctx, jsThis, "status", JS_NewInt32(ctx, http_response_code));
+    state->response_headers = header_buf->document_header;
 
     suffix = get_suffix(checkHeader(header_buf, "Content-encoding"));
     if (suffix != NULL) {
@@ -2560,12 +2658,66 @@ xml_http_request_abort(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCon
     return JS_UNDEFINED;
 }
 
+static JSValue
+xml_http_request_get_all_response_headers(JSContext *ctx, JSValueConst jsThis, int argc,
+					  JSValueConst *argv)
+{
+    XMLHttpRequestState *state = JS_GetOpaque(jsThis, XMLHttpRequestClassID);
+    Str headers = Strnew();
+    TextListItem *i;
+
+    for (i = state->response_headers->first; i != NULL; i = i->next) {
+	Strcat_charp(headers, i->ptr);
+	Strcat_charp(headers, "\r\n");
+    }
+
+    return JS_NewString(ctx, headers->ptr);
+}
+
+static JSValue
+xml_http_request_get_response_header(JSContext *ctx, JSValueConst jsThis, int argc,
+				     JSValueConst *argv)
+{
+    XMLHttpRequestState *state;
+    const char *name;
+    char *value;
+    TextListItem *i;
+
+    if (argc < 1) {
+	return JS_EXCEPTION;
+    }
+
+    name = JS_ToCString(ctx, argv[0]);
+    value = NULL;
+    if (name != NULL) {
+	state = JS_GetOpaque(jsThis, XMLHttpRequestClassID);
+
+	for (i = state->response_headers->first; i != NULL; i = i->next) {
+	    size_t len = strlen(name);
+	    if (strncasecmp(i->ptr, name, len) == 0) {
+		value = i->ptr + len;
+		while (*value == ' ' || *value == '\t') value++;
+		break;
+	    }
+	}
+	JS_FreeCString(ctx, name);
+    }
+
+    if (value != NULL) {
+	return JS_NewString(ctx, value);
+    } else {
+	return JS_NULL;
+    }
+}
+
 static const JSCFunctionListEntry XMLHttpRequestFuncs[] = {
     JS_CFUNC_DEF("open", 1, xml_http_request_open),
     JS_CFUNC_DEF("addEventListener", 1, xml_http_request_add_event_listener),
     JS_CFUNC_DEF("setRequestHeader", 1, xml_http_request_set_request_header),
     JS_CFUNC_DEF("send", 1, xml_http_request_send),
     JS_CFUNC_DEF("abort", 1, xml_http_request_abort),
+    JS_CFUNC_DEF("getResponseHeader", 1, xml_http_request_get_response_header),
+    JS_CFUNC_DEF("getAllResponseHeaders", 1, xml_http_request_get_all_response_headers),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "XMLHttpRequest", JS_PROP_CONFIGURABLE),
 };
@@ -2647,6 +2799,34 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}"
 	""
+	"class Range {"
+	"  setStart(container, offset) {"
+	"    this.start_container = container;"
+	"  }"
+	"  setEnd(container, offset) {"
+	"    this.end_container = container;"
+	"  }"
+	"  getBoundingClientRect() {"
+	"    if (this.start_container) {"
+	"      return this.start_container.getBoundingClientRect();"
+	"    } else if (this.end_container) {"
+	"      return this.end_container.getBoundingClientRect();"
+	"    } else {"
+	"      return null;"
+	"    }"
+	"  }"
+	"  getClientRects() {"
+	"    if (this.start_container) {"
+	"      return this.start_container.getClientRects();"
+	"    } else if (this.end_container) {"
+	"      return this.end_container.getClientRects();"
+	"    } else {"
+	"      return null;"
+	"    }"
+	"  }"
+	"}"
+	""
+
 	"/* Element.attributes */"
 	"function w3m_elementAttributes(obj) {"
 	"  let attribute_keys = Object.keys(obj);"

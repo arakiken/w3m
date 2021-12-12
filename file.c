@@ -86,6 +86,7 @@ static int ignore_nl_textarea;
 static char *cur_textarea_id;
 static char *cur_textarea_class;
 static char *cur_textarea_onchange;
+static char *cur_textarea_oninput;
 int max_textarea = MAX_TEXTAREA;
 
 int http_response_code;
@@ -4218,6 +4219,8 @@ process_textarea(struct parsed_tag *tag, int width)
     parsedtag_get_value(tag, ATTR_CLASS, &cur_textarea_class);
     cur_textarea_onchange = NULL;
     parsedtag_get_value(tag, ATTR_ONCHANGE, &cur_textarea_onchange);
+    cur_textarea_oninput = NULL;
+    parsedtag_get_value(tag, ATTR_ONINPUT, &cur_textarea_oninput);
     ignore_nl_textarea = TRUE;
 
     return tmp;
@@ -4246,6 +4249,8 @@ process_n_textarea(void)
 	Strcat(tmp, Sprintf(" class=\"%s\"", cur_textarea_class));
     if (cur_textarea_onchange)
 	Strcat(tmp, Sprintf(" onchange=\"%s\"", cur_textarea_onchange));
+    if (cur_textarea_oninput)
+	Strcat(tmp, Sprintf(" oninput=\"%s\"", cur_textarea_oninput));
     if (cur_textarea_readonly)
 	Strcat_charp(tmp, " readonly");
     Strcat_charp(tmp, "><u>");
