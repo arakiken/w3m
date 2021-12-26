@@ -1575,13 +1575,17 @@ element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
     char script[] =
 	"if (this.parentNode && this.parentNode.childNodes.length >= 2) {"
+	"  let element = null;"
 	"  for (let i = this.parentNode.childNodes.length - 2; i >= 0; i--) {"
 	"    if (this.parentNode.childNodes[i] == this) {"
-	"      this.parentNode.childNodes[i + 1];"
+	"      element = this.parentNode.childNodes[i + 1];"
+	"      break;"
 	"    }"
 	"  }"
-	"}"
-	"null;";
+	"  element;"
+	"} else {"
+	"  null;"
+	"}";
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
@@ -1592,13 +1596,17 @@ element_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
     char script[] =
 	"if (this.parentNode) {"
+        "  let element = null;"
 	"  for (let i = 1; i < this.parentNode.childNodes.length; i++) {"
 	"    if (this.parentNode.childNodes[i] == this) {"
-	"      this.parentNode.childNodes[i - 1];"
+	"      element = this.parentNode.childNodes[i - 1];"
+	"      break;"
 	"    }"
 	"  }"
-	"}"
-	"null;";
+	"  element;"
+	"} else {"
+	"  null;"
+	"}";
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
