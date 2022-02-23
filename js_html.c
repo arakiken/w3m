@@ -1114,6 +1114,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "offsetLeft", JS_NewInt32(ctx, 0));
     JS_SetPropertyStr(ctx, obj, "offsetTop", JS_NewInt32(ctx, 0));
 
+    JS_SetPropertyStr(ctx, obj, "dataset", JS_NewObject(ctx));
+
     /* XXX HTMLSelectElement */
     JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
 

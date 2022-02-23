@@ -7097,7 +7097,18 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 		    line = Strnew_m_charp(p, line, NULL)->ptr;
 		}
 		is_tag = FALSE;
-		continue;
+
+		/*
+		 * This 'continue' was added by
+		 * https://github.com/tats/w3m/commit/4d34f77a4b0e50366bb45a1aa140e8cf4ff405eb
+		 *
+		 * But Don't skip following steps in textarea and
+		 * in javascript where '<' means 'less than'.
+		 */
+#ifdef USE_SCRIPT
+		if ((pre_mode & (RB_SCRIPT|RB_INTXTA)) == 0)
+#endif
+		    continue;
 	    }
 	    if (obuf->table_level >= 0)
 		goto proc_normal;
