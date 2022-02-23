@@ -1901,6 +1901,14 @@ element_get_attribute_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValu
 }
 
 static JSValue
+element_child_count_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] = "this.children.length;";
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
 element_click(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JS_SetPropertyStr(ctx, jsThis, "checked", JS_TRUE);
@@ -1924,6 +1932,12 @@ static JSValue
 element_get_context(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     return canvas_rendering_context2d_new(ctx, jsThis, 0, NULL);
+}
+
+static JSValue
+element_to_data_url(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_NewString(ctx, "data:,");
 }
 
 static const JSCFunctionListEntry ElementFuncs[] = {
@@ -1966,6 +1980,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("innerHTML", element_text_content_get, element_text_content_set),
     JS_CFUNC_DEF("insertAdjacentHTML", 1, element_insert_adjacent_html),
     JS_CFUNC_DEF("getAttributeNode", 1, element_get_attribute_node),
+    JS_CGETSET_DEF("childElementCount", element_child_count_get, NULL),
 
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
@@ -1983,6 +1998,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
 
     /* XXX HTMLCanvasElement only */
     JS_CFUNC_DEF("getContext", 1, element_get_context),
+    JS_CFUNC_DEF("toDataURL", 1, element_to_data_url),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
 

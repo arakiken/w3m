@@ -408,14 +408,16 @@ static void
 script_buf2js(Buffer *buf, void *interp)
 {
     JSValue ret;
-    int i;
-    char *t, *c;
-#ifdef USE_COOKIE
-    Str cs;
-#endif
 
     ret = js_eval2(interp, "document;");
     if (js_is_exception(ret)) {
+	int i;
+	char *t, *c;
+	char *ctype;
+#ifdef USE_COOKIE
+	Str cs;
+#endif
+
 	js_eval(interp,
 		"class URL extends Location {}"
 		""
@@ -427,8 +429,10 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"function w3m_initDocumentTree(doc) {"
 		"  doc.documentElement = new HTMLElement(\"HTML\");"
+		"  doc.firstElementChild = doc.lastElementChild = doc.documentElement;"
 		"  doc.children = doc.documentElement.children;"
 		"  doc.childNodes = doc.children; /* XXX NodeList */"
+		"  doc.childElementCount = 1;"
 		"  doc.head = new HTMLElement(\"HEAD\");"
 		"  doc.body = new HTMLElement(\"BODY\");"
 		"  doc.activeElement = doc.body;"
@@ -446,6 +450,10 @@ script_buf2js(Buffer *buf, void *interp)
 		"document.visibilityState = \"visible\";" /* XXX */
 		"document.activeElement = null;"
 		"document.defaultView = window;"
+		"document.designMode = \"off\";"
+		"document.dir = \"ltr\";"
+		"document.hidden = false;"
+		"document.fullscreenEnabled = false;"
 		""
 		"var screen = new Object();"
 		"var navigator = new Navigator();"
@@ -823,12 +831,127 @@ script_buf2js(Buffer *buf, void *interp)
 		"    str += w3m_textNodesToStr(node.childNodes[i]);"
 		"  }"
 		"  return str;"
-		"}");
+		"}"
+		""
+		"const w3m_base64ConvTable ="
+		"  \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
+		"function w3m_btoaChar(i) {"
+		"  if (i >= 0 && i < 64) {"
+		"    return w3m_base64ConvTable[i];"
+		"  }"
+		"  return undefined;"
+		"}"
+		"function w3m_atobIndex(chr) {"
+		"  let i = w3m_base64ConvTable.indexOf(chr);"
+		"  return i < 0 ? undefined : i;"
+		"}"
+		"function atob(data) {"
+		"  data = `${data}`;"
+		"  data = data.replace(/[ \\t\\n\\f\\r]/g, \"\");"
+		"  if (data.length % 4 === 0) {"
+		"    data = data.replace(/==?$/, "");"
+		"  }"
+		"  if (data.length % 4 === 1 || /[^+/0-9A-Za-z]/.test(data)) {"
+		"    return null;"
+		"  }"
+		"  let out = \"\";"
+		"  let buf = 0;"
+		"  let nbits = 0;"
+		"  for (let i = 0; i < data.length; i++) {"
+		"    buf <<= 6;"
+		"    buf |= w3m_atobIndex(data[i]);"
+		"    nbits += 6;"
+		"    if (nbits === 24) {"
+		"      out += String.fromCharCode((buf & 0xff0000) >> 16);"
+	        "      out += String.fromCharCode((buf & 0xff00) >> 8);"
+		"      out += String.fromCharCode(buf & 0xff);"
+		"      buf = nbits = 0;"
+		"    }"
+	        "  }"
+	        "  if (nbits === 12) {"
+		"    buf >>= 4;"
+		"    out += String.fromCharCode(buf);"
+		"  } else if (nbits === 18) {"
+		"    buf >>= 2;"
+		"    out += String.fromCharCode((buf & 0xff00) >> 8);"
+		"    out += String.fromCharCode(buf & 0xff);"
+	        "  }"
+	        "  return out;"
+	        "}"
+		"function btoa(data) {"
+		"  data = `${data}`;"
+		"  for (let i = 0; i < data.length; i++) {"
+		"    if (data.charCodeAt(i) > 255) {"
+		"      return null;"
+		"    }"
+		"  }"
+		"  let out = \"\";"
+		"  for (let i = 0; i < data.length; i += 3) {"
+		"    let set = [undefined, undefined, undefined, undefined];"
+		"    set[0] = data.charCodeAt(i) >> 2;"
+		"    set[1] = (data.charCodeAt(i) & 0x03) << 4;"
+		"    if (data.length > i + 1) {"
+		"      set[1] |= data.charCodeAt(i + 1) >> 4;"
+		"      set[2] = (data.charCodeAt(i + 1) & 0x0f) << 2;"
+		"    }"
+		"    if (data.length > i + 2) {"
+		"      set[2] |= data.charCodeAt(i + 2) >> 6;"
+		"      set[3] = data.charCodeAt(i + 2) & 0x3f;"
+		"    }"
+		"    for (let j = 0; j < set.length; j++) {"
+		"      if (typeof set[j] === \"undefined\") {"
+		"        out += \"=\";"
+		"      } else {"
+		"        out += w3m_btoaChar(set[j]);"
+		"      }"
+		"    }"
+		"  }"
+		"  return out;"
+	        "}");
+
+	js_eval(interp, Sprintf("var location = new Location(\"%s\");",
+				parsedURL2Str(&buf->currentURL)->ptr)->ptr);
+	js_eval(interp, "window.location = location;");
+
+	i = 0;
+	if (CurrentTab != NULL) {
+	    Buffer *tb;
+
+	    for (tb = Firstbuf; tb != NULL; i++, tb = tb->nextBuffer);
+	}
+	js_eval(interp, Sprintf("history.length = %d;", i)->ptr);
+
 	js_eval(interp, Sprintf("document.characterSet = \"%s\";",
 				wc_ces_to_charset(buf->document_charset))->ptr);
 	if (buf->buffername != NULL) {
 	    js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(buf->buffername))->ptr);
 	}
+	ctype = checkContentType(buf);
+	js_eval(interp, Sprintf("document.contentType = \"%s\";",
+				ctype ? ctype : "text/html")->ptr);
+	js_eval(interp, Sprintf("document.URL = \"%s\";",
+				parsedURL2Str(&buf->currentURL)->ptr)->ptr);
+	switch (buf->currentURL.scheme) {
+	case SCM_HTTP:
+	case SCM_GOPHER:
+	case SCM_FTP:
+#ifdef USE_SSL
+	case SCM_HTTPS:
+#endif
+	    if (buf->currentURL.host != NULL)
+		js_eval(interp, Sprintf("document.domain = \"%s\";", buf->currentURL.host)->ptr);
+	    break;
+	}
+	js_eval(interp, Sprintf("document.lastModified = \"%s\";", chop_last_modified(buf))->ptr);
+	c = t = "";
+	if (buf->buffername != NULL)
+	    t = buf->buffername;
+#ifdef USE_COOKIE
+	cs = find_cookie(&buf->currentURL);
+	if (cs) c = cs->ptr;
+#endif
+	js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
+	js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
     } else {
 	js_eval(interp, "w3m_initDocumentTree(document);");
     }
@@ -837,42 +960,6 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp, Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;", buf->COLS * term_ppc)->ptr);
     js_eval(interp, Sprintf("screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;", buf->LINES * term_ppl)->ptr);
     js_eval(interp, "window.scrollX = window.scrollY = document.body.scrollLeft = document.body.scrollTop = document.documentElement.scrollLeft = document.documentElement.scrollTop = 0;");
-
-    js_eval(interp, Sprintf("var location = new Location(\"%s\");",
-			    parsedURL2Str(&buf->currentURL)->ptr)->ptr);
-    js_eval(interp, "window.location = location;");
-
-    i = 0;
-    if (CurrentTab != NULL) {
-	Buffer *tb;
-
-	for (tb = Firstbuf; tb != NULL; i++, tb = tb->nextBuffer);
-    }
-    js_eval(interp, Sprintf("history.length = %d;", i)->ptr);
-
-    js_eval(interp, Sprintf("document.URL = \"%s\";", parsedURL2Str(&buf->currentURL)->ptr)->ptr);
-    switch (buf->currentURL.scheme) {
-    case SCM_HTTP:
-    case SCM_GOPHER:
-    case SCM_FTP:
-#ifdef USE_SSL
-    case SCM_HTTPS:
-#endif
-	if (buf->currentURL.host != NULL)
-	    js_eval(interp, Sprintf("document.domain = \"%s\";", buf->currentURL.host)->ptr);
-	break;
-    }
-    js_eval(interp, Sprintf("document.lastModified = \"%s\";", chop_last_modified(buf))->ptr);
-    c = t = "";
-    if (buf->buffername != NULL)
-	t = buf->buffername;
-#ifdef USE_COOKIE
-    cs = find_cookie(&buf->currentURL);
-    if (cs) c = cs->ptr;
-#endif
-
-    js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
-    js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
 
     js_eval(interp, "document.scripts = new HTMLCollection();");
 #ifndef USE_LIBXML2
