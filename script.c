@@ -280,7 +280,11 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 
     if (*n != '\0' && check_property_name(n)) {
 	JSValue val = js_eval2(interp, Sprintf("document.forms[%d].%s;", i, n)->ptr);
-	if (js_is_undefined(val)) {
+	char *cstr;
+
+	if (js_is_undefined(val) ||
+	    /* For the case of n == "id" */
+	    ((cstr = js_get_cstr(interp, val)) != NULL && *cstr == '\0')) {
 	    js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
 	} else {
 	    int len;
