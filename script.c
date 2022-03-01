@@ -280,11 +280,19 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 
     if (*n != '\0' && check_property_name(n)) {
 	JSValue val = js_eval2(interp, Sprintf("document.forms[%d].%s;", i, n)->ptr);
-	char *cstr;
+	int is_new = 1;
 
-	if (js_is_undefined(val) ||
-	    /* For the case of n == "id" */
-	    ((cstr = js_get_cstr(interp, val)) != NULL && *cstr == '\0')) {
+	if (!js_is_undefined(val)) {
+	    char *cstr;
+	    /* For the case of n == "id". js_free(interp, val) is called in js_get_cstr(). */
+	    if ((cstr = js_get_cstr(interp, val)) == NULL || *cstr != '\0') {
+		is_new = 0;
+	    }
+	} else {
+	    js_free(interp, val);
+	}
+
+	if (is_new) {
 	    js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
 	} else {
 	    int len;
@@ -297,7 +305,6 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 
 	    js_eval(interp, Sprintf("document.forms[%d].%s[%d] = document.forms[%d].elements[%d];", i, n, len, i, j)->ptr);
 	}
-	js_free(interp, val);
     }
 
     if (fi->onkeyup) {
@@ -423,7 +430,11 @@ script_buf2js(Buffer *buf, void *interp)
 #endif
 
 	js_eval(interp,
-		"class URL extends Location {}"
+		"class URL extends Location {"
+		"  /* XXX */"
+		"  static createObjectURL(object) { return \"blob:null/0\"; }"
+		"  static revokeObjectURL(objectURL) {}"
+		"}"
 		""
 		"var self = globalThis;"
 		"var window = globalThis;"
@@ -433,7 +444,7 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"function w3m_initDocumentTree(doc) {"
 		"  doc.documentElement = new HTMLElement(\"HTML\");"
-		"  doc.firstElementChild = doc.lastElementChild = doc.documentElement;"
+		"  doc.firstElementChild = doc.lastElementChild = doc.scrollingElement = doc.documentElement;"
 		"  doc.children = doc.documentElement.children;"
 		"  doc.childNodes = doc.children; /* XXX NodeList */"
 		"  doc.childElementCount = 1;"
@@ -980,6 +991,9 @@ script_buf2js(Buffer *buf, void *interp)
 	}
     }
 #endif
+
+    js_eval(interp, "document.images = new HTMLCollection();");
+    js_eval(interp, "document.links = new HTMLCollection();");
 
     update_forms(buf, interp);
 }

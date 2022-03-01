@@ -301,36 +301,30 @@ static JSValue
 window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     WindowState *state = JS_GetOpaque(jsThis, WindowClassID);
+    OpenWindow *w = (OpenWindow *)GC_MALLOC(sizeof(OpenWindow));
 
-    if (argc >= 1) {
-	const char *str[2];
-	size_t len[2];
+    if (argc == 0) {
+	w->url = w->name = "";
+    } else {
+	const char *str;
+	size_t len;
 
-	str[0] = JS_ToCStringLen(ctx, &len[0], argv[0]);
+	str = JS_ToCStringLen(ctx, &len, argv[0]);
+	w->url = allocStr(str, len);
+	JS_FreeCString(ctx, str);
 
 	if (argc >= 2) {
-	    str[1] = JS_ToCStringLen(ctx, &len[1], argv[1]);
+	    str = JS_ToCStringLen(ctx, &len, argv[1]);
+	    w->name = allocStr(str, len);
+	    JS_FreeCString(ctx, str);
 	} else {
-	    str[1] = NULL;
+	    w->name = "";
 	}
-
-	if (str[0] != NULL) {
-	    OpenWindow *w = (OpenWindow *)GC_MALLOC(sizeof(OpenWindow));
-	    w->url = allocStr(str[0], len[0]);
-	    if (str[1] != NULL) {
-		w->name = allocStr(str[1], len[1]);
-		JS_FreeCString(ctx, str[1]);
-	    } else {
-		w->name = "";
-	    }
-	    pushValue(state->win, (void *)w);
-	    JS_FreeCString(ctx, str[0]);
-	}
-
-	return JS_DupValue(ctx, jsThis); /* XXX segfault without this by returining jsThis. */
     }
 
-    return JS_EXCEPTION;
+    pushValue(state->win, (void *)w);
+
+    return JS_DupValue(ctx, jsThis); /* XXX segfault without this by returining jsThis. */
 }
 
 static JSValue
@@ -420,6 +414,18 @@ window_match_media(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     return result;
 }
 
+static JSValue
+window_focus(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
+window_blur(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
 static struct {
     char *name;
     JSCFunction *func;
@@ -434,6 +440,8 @@ static struct {
     { "scrollBy", window_scroll },
     { "getSelection", window_get_selection },
     { "matchMedia", window_match_media },
+    { "focus", window_focus },
+    { "blur", window_blur },
     { "addEventListener", add_event_listener },
     { "removeEventListener", remove_event_listener },
     { "dispatchEvent", dispatch_event },
@@ -1019,6 +1027,8 @@ static const JSCFunctionListEntry CanvasRenderingContext2DFuncs[] = {
     JS_CFUNC_DEF("stroke", 1, canvas2d_ignore),
     JS_CFUNC_DEF("strokeText", 1, canvas2d_ignore),
     JS_CFUNC_DEF("strokeRect", 1, canvas2d_ignore),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Canvas", JS_PROP_CONFIGURABLE),
 };
 
 static void
@@ -1080,7 +1090,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "className", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, obj, "classList", JS_Eval(ctx, "new DomTokenList();", 19,
+    JS_SetPropertyStr(ctx, obj, "classList", JS_Eval(ctx, "new DOMTokenList();", 19,
 						     "<input>", EVAL_FLAG));
     JS_SetPropertyStr(ctx, obj, "querySelector",
 		      JS_Eval(ctx, "document.querySelector;", 23, "<input>", EVAL_FLAG));
@@ -1090,6 +1100,15 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 		      JS_Eval(ctx, "document.getElementsByTagName;", 30, "<input>", EVAL_FLAG));
     JS_SetPropertyStr(ctx, obj, "getElementsByClassName",
 		      JS_Eval(ctx, "document.getElementsByClassName;", 32, "<input>", EVAL_FLAG));
+
+    JS_SetPropertyStr(ctx, obj, "clientWidth", JS_NewInt32(ctx, term_ppc));
+    JS_SetPropertyStr(ctx, obj, "clientHeight", JS_NewInt32(ctx, term_ppl));
+    JS_SetPropertyStr(ctx, obj, "clientLeft", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "clientTop", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "scrollWidth", JS_NewInt32(ctx, term_ppc));
+    JS_SetPropertyStr(ctx, obj, "scrollHeight", JS_NewInt32(ctx, term_ppl));
+    JS_SetPropertyStr(ctx, obj, "scrollLeft", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "scrollTop", JS_NewInt32(ctx, 0));
 
     classlist = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, classlist, "element", JS_DupValue(ctx, obj));
@@ -1994,6 +2013,8 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("focus", 1, element_focus_or_blur),
     JS_CFUNC_DEF("blur", 1, element_focus_or_blur),
 
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
+
     /* XXX HTMLInputElement */
     JS_CFUNC_DEF("select", 1, element_select),
 
@@ -2004,10 +2025,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("getContext", 1, element_get_context),
     JS_CFUNC_DEF("toDataURL", 1, element_to_data_url),
 
-    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
-
-
-    /* HTMLFormElement */
+    /* XXX HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
     JS_CFUNC_DEF("reset", 1, html_form_element_reset),
 };
@@ -2301,6 +2319,12 @@ document_writeln(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
 }
 
 static JSValue
+document_clear(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_UNDEFINED;
+}
+
+static JSValue
 document_location_get(JSContext *ctx, JSValueConst jsThis)
 {
     return JS_Eval(ctx, "location;", 9, "<input>", EVAL_FLAG);
@@ -2385,6 +2409,7 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CFUNC_DEF("close", 1, document_close),
     JS_CFUNC_DEF("write", 1, document_write),
     JS_CFUNC_DEF("writeln", 1, document_writeln),
+    JS_CFUNC_DEF("clear", 1, document_clear), /* deprecated. do nothing */
     JS_CGETSET_DEF("location", document_location_get, document_location_set),
     JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set),
     JS_CGETSET_DEF("referrer", document_referrer_get, NULL),
@@ -3281,6 +3306,16 @@ js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func)
 
 #ifdef LIBXML_TREE_ENABLED
 static void
+push_node_to(JSContext *ctx, JSValue node, char *array_name)
+{
+    JSValue array = js_eval2(ctx, array_name);
+    JSValue prop = JS_GetPropertyStr(ctx, array, "push");
+    JS_FreeValue(ctx, JS_Call(ctx, prop, array, 1, &node));
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, array);
+}
+
+static void
 create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 {
 #ifdef DOM_DEBUG
@@ -3309,23 +3344,22 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 #endif
 
 	    if (strcasecmp((char*)node->name, "SCRIPT") == 0) {
-		JSValue scripts;
-		JSValue prop;
-
 		jsnode = html_script_element_new(ctx, jsparent, 0, NULL);
-		scripts = js_eval2(ctx, "document.scripts;");
-		prop = JS_GetPropertyStr(ctx, scripts, "push");
-		JS_FreeValue(ctx, JS_Call(ctx, prop, scripts, 1, &jsnode));
-		JS_FreeValue(ctx, prop);
-		JS_FreeValue(ctx, scripts);
+		push_node_to(ctx, jsnode, "document.scripts;");
 	    } else if (strcasecmp((char*)node->name, "IMG") == 0) {
 		jsnode = html_image_element_new(ctx, jsparent, 0, NULL);
+		push_node_to(ctx, jsnode, "document.images;");
 	    } else if (strcasecmp((char*)node->name, "CANVAS") == 0) {
 		jsnode = html_canvas_element_new(ctx, jsparent, 0, NULL);
 	    } else {
 		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);
 		JS_FreeValue(ctx, arg);
+
+		/* XXX Ignore <area> tag which has href attribute. */
+		if (strcasecmp((char*)node->name, "a") == 0) {
+		    push_node_to(ctx, jsnode, "document.links;");
+		}
 	    }
 
 	    for (attr = node->properties; attr != NULL; attr = attr->next) {
