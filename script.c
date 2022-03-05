@@ -989,6 +989,10 @@ script_buf2js(Buffer *buf, void *interp)
 		    "  document.body.appendChild(element);"
 		    "}");
 	}
+	js_eval(interp,
+		"if (document.scripts && document.scripts.length > 0) {"
+		"  document.currentScript = document.scripts[document.scripts.length - 1];"
+		"}");
     }
 #endif
 
@@ -1065,12 +1069,12 @@ static Str
 get_form_element_event(void *interp, int i, int j, const char *type)
 {
     char *script =
-	Sprintf("if (document.forms[%d].elements[%d].myevents) {"
+	Sprintf("if (document.forms[%d].elements[%d].w3m_events) {"
 		"  let listener = undefined;"
-		"  for (let i = 0; i < document.forms[%d].elements[%d].myevents.length; i++) {"
-		"    if (document.forms[%d].elements[%d].myevents[i].type === \"%s\") {"
-		"      listener = document.forms[%d].elements[%d].myevents[i].listener;"
-		"      document.forms[%d].elements[%d].myevents.splice(i, 1);"
+		"  for (let i = 0; i < document.forms[%d].elements[%d].w3m_events.length; i++) {"
+		"    if (document.forms[%d].elements[%d].w3m_events[i].type === \"%s\") {"
+		"      listener = document.forms[%d].elements[%d].w3m_events[i].listener;"
+		"      document.forms[%d].elements[%d].w3m_events.splice(i, 1);"
 		"      break;"
 		"    }"
 		"  }"
@@ -1090,12 +1094,12 @@ static Str
 get_form_event(void *interp, int i, const char *type)
 {
     char *script =
-	Sprintf("if (document.forms[%d].myevents) {"
+	Sprintf("if (document.forms[%d].w3m_events) {"
 		"  let listener = undefined;"
-		"  for (let i = 0; i < document.forms[%d].myevents.length; i++) {"
-		"    if (document.forms[%d].myevents[i].type === \"%s\") {"
-		"      listener = document.forms[%d].myevents[i].listener;"
-		"      document.forms[%d].myevents.splice(i, 1);"
+		"  for (let i = 0; i < document.forms[%d].w3m_events.length; i++) {"
+		"    if (document.forms[%d].w3m_events[i].type === \"%s\") {"
+		"      listener = document.forms[%d].w3m_events[i].listener;"
+		"      document.forms[%d].w3m_events.splice(i, 1);"
 		"      break;"
 		"    }"
 		"  }"
@@ -1116,12 +1120,12 @@ static Str
 get_document_event(void *interp, const char *type)
 {
     char *script =
-	Sprintf("if (document.myevents) {"
+	Sprintf("if (document.w3m_events) {"
 		"  let listener = undefined;"
-		"  for (let i = 0; i < document.myevents.length; i++) {"
-		"    if (document.myevents[i].type === \"%s\") {"
-		"      listener = document.myevents[i].listener;"
-		"      document.myevents.splice(i, 1);"
+		"  for (let i = 0; i < document.w3m_events.length; i++) {"
+		"    if (document.w3m_events[i].type === \"%s\") {"
+		"      listener = document.w3m_events[i].listener;"
+		"      document.w3m_events.splice(i, 1);"
 		"      break;"
 		"    }"
 		"  }"
@@ -1668,23 +1672,24 @@ onload(void *interp)
 {
     js_eval(interp,
 	    "function w3m_onload(obj) {"
-	    "  if (obj.myevents && obj.myevents.length > 0) {"
+	    "  if (obj.w3m_events && obj.w3m_events.length > 0) {"
 	    "    /*"
 	    "     * 'i = 0; ...;i++' falls infinite loop if a listener calls addEventListener()."
 	    "     * The case of calling removeEventListener() is not considered."
 	    "     */"
-	    "    for (let i = obj.myevents.length - 1; i >= 0; i--) {"
-	    "      if (obj.myevents[i].type === \"loadstart\" ||"
-	    "          obj.myevents[i].type === \"load\" ||"
-	    "          obj.myevents[i].type === \"loadend\" ||"
-	    "          obj.myevents[i].type === \"DOMContentLoaded\" ||"
-	    "          obj.myevents[i].type === \"visibilitychange\") {"
-	    "        if (typeof obj.myevents[i].listener == \"function\") {"
-	    "          obj.myevents[i].listener(obj.myevents[i]);"
-	    "        } else if (obj.myevents[i].listener.handleEvent) {"
-	    "          obj.myevents[i].listener.handleEvent(obj.myevents[i]);"
+	    "    for (let i = obj.w3m_events.length - 1; i >= 0; i--) {"
+	    "      if (obj.w3m_events[i].type === \"loadstart\" ||"
+	    "          obj.w3m_events[i].type === \"load\" ||"
+	    "          obj.w3m_events[i].type === \"loadend\" ||"
+	    "          obj.w3m_events[i].type === \"DOMContentLoaded\" ||"
+	    "          obj.w3m_events[i].type === \"visibilitychange\") {"
+	    "        if (typeof obj.w3m_events[i].listener == \"function\") {"
+	    "          obj.w3m_events[i].listener(obj.w3m_events[i]);"
+	    "        } else if (obj.w3m_events[i].listener.handleEvent &&"
+	    "                   typeof obj.w3m_events[i].listener.handleEvent == \"function\") {"
+	    "          obj.w3m_events[i].listener.handleEvent(obj.w3m_events[i]);"
 	    "        }"
-	    "        obj.myevents.splice(i, 1);"
+	    "        obj.w3m_events.splice(i, 1);"
 	    "      }"
 	    "    }"
 	    "  }"

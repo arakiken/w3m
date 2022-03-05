@@ -128,10 +128,10 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     fclose(fp);
 #endif
 
-    events = JS_GetPropertyStr(ctx, jsThis, "myevents");
+    events = JS_GetPropertyStr(ctx, jsThis, "w3m_events");
     if (!JS_IsArray(ctx, events)) {
 	events = JS_NewArray(ctx);
-	JS_SetPropertyStr(ctx, jsThis, "myevents", events);
+	JS_SetPropertyStr(ctx, jsThis, "w3m_events", events);
 	need_free_events = 0;
     } else {
 	need_free_events = 1;
@@ -189,7 +189,7 @@ remove_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	return JS_EXCEPTION;
     }
 
-    events = JS_GetPropertyStr(ctx, jsThis, "myevents");
+    events = JS_GetPropertyStr(ctx, jsThis, "w3m_events");
     if (!JS_IsArray(ctx, events)) {
 	JS_FreeValue(ctx, events);
 	return JS_UNDEFINED;
@@ -255,7 +255,7 @@ dispatch_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     type = JS_GetPropertyStr(ctx, argv[0], "type");
     str = JS_ToCString(ctx, type);
     if (str != NULL) {
-	JSValue events = JS_GetPropertyStr(ctx, jsThis, "myevents");
+	JSValue events = JS_GetPropertyStr(ctx, jsThis, "w3m_events");
 	int i;
 
 	for (i = 0; ; i++) {
@@ -3504,6 +3504,11 @@ create_dom_tree(JSContext *ctx, char *filename, char *charset)
 
     xmlFreeDoc(doc);
     xmlCleanupParser();
+
+    js_eval(ctx,
+	    "if (document.scripts && document.scripts.length > 0) {"
+	    "  document.currentScript = document.scripts[document.scripts.length - 1];"
+	    "}");
 
     return 1;
 
