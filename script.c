@@ -806,7 +806,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return Date.now();"
 		"};"
 		""
-		"var w3m_storage = new Object();"
+		"var w3m_storage = new Object(); /* XXX */"
 		"sessionStorage.getItem = localStorage.getItem = function(key) {"
 		"  return w3m_storage[key];"
 		"};"

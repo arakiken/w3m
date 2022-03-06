@@ -1802,8 +1802,23 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     if ((p = strchr(str, '<')) && strchr(p + 1, '>')) {
 	xmlDoc *doc = htmlReadMemory(str, strlen(str), "", "utf-8",
 				     HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-				     HTML_PARSE_NOWARNING | HTML_PARSE_NOIMPLIED);
-	create_tree(ctx, xmlDocGetRootElement(doc), JS_DupValue(ctx, jsThis), 1);
+				     HTML_PARSE_NOWARNING /*| HTML_PARSE_NOIMPLIED*/);
+	xmlNode *node;
+	/*
+	 * <link/><table></table><a href='/a'>a</a><input type='checkbox'/>
+	 * -> With HTML_PARSE_NOIMPLIED
+	 *    <link> - <table>
+	 *             <a>
+	 *             <input>
+	 *    Without HTMLPARSE_NOIMPLIED
+	 *    <html> - <head> - <link>
+	 *             <body> - <table>
+	 *                      <a>
+	 *                      <input>
+	 */
+	for (node = xmlDocGetRootElement(doc)->children /* head */; node; node = node->next) {
+	    create_tree(ctx, node->children, JS_DupValue(ctx, jsThis), 1);
+	}
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
     } else
@@ -1892,9 +1907,13 @@ element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSVa
     if (html != NULL) {
 	xmlDoc *doc = htmlReadMemory(html, strlen(html), "", "utf-8",
 				     HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-				     HTML_PARSE_NOWARNING | HTML_PARSE_NOIMPLIED);
+				     HTML_PARSE_NOWARNING /*| HTML_PARSE_NOIMPLIED*/);
+	xmlNode *node;
 	JS_FreeCString(ctx, html);
-	create_tree(ctx, xmlDocGetRootElement(doc), parent, 1);
+	for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
+	    create_tree(ctx, node->children, parent, 1);
+	}
+	JS_FreeValue(ctx, parent);
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
     }
