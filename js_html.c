@@ -468,6 +468,21 @@ location_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 	    return JS_EXCEPTION;
 	}
 
+	if (argc > 1) {
+	    Str base = get_str(ctx, argv[1]);
+	    if (base != NULL) {
+		state->url = Sprintf("%s/%s", base->ptr, state->url->ptr);
+	    }
+	}
+
+#if 0
+	{
+	    FILE *fp = fopen("scriptlog.txt", "a");
+	    fprintf(fp, "Location: %s\n", state->url->ptr);
+	    fclose(fp);
+	}
+#endif
+
 	parseURL(state->url->ptr, &state->pu, NULL);
     } else {
 	state->url = Strnew();
@@ -532,49 +547,48 @@ location_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 }
 
 static JSValue
-location_protocol_get(JSContext *ctx, JSValueConst jsThis)
+location_to_string(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
-    Str s;
+    return location_href_get(ctx, jsThis);
+}
 
-    s = Strnew();
-    switch (state->pu.scheme) {
+static const char*
+get_url_scheme_str(int scheme)
+{
+    switch (scheme) {
     case SCM_HTTP:
-	Strcat_charp(s, "http:");
-	break;
+	return "http:";
     case SCM_GOPHER:
-	Strcat_charp(s, "gopher:");
-	break;
+	return "gopher:";
     case SCM_FTP:
-	Strcat_charp(s, "ftp:");
-	break;
+	return "ftp:";
     case SCM_LOCAL:
-	Strcat_charp(s, "file:");
-	break;
+	return "file:";
     case SCM_NNTP:
-	Strcat_charp(s, "nntp:");
-	break;
+	return "nntp:";
     case SCM_NEWS:
-	Strcat_charp(s, "news:");
-	break;
+	return "news:";
 #ifndef USE_W3MMAILER
     case SCM_MAILTO:
-	Strcat_charp(s, "mailto:");
-	break;
+	return "mailto:";
 #endif
 #ifdef USE_SSL
     case SCM_HTTPS:
-	Strcat_charp(s, "https:");
-	break;
+	return "https:";
 #endif
     case SCM_JAVASCRIPT:
-	Strcat_charp(s, "javascript:");
-	break;
+	return "javascript:";
     default:
-	break;
+	return "";
     }
+}
 
-    return JS_NewStringLen(ctx, s->ptr, s->length);
+static JSValue
+location_protocol_get(JSContext *ctx, JSValueConst jsThis)
+{
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+
+    return JS_NewString(ctx, get_url_scheme_str(state->pu.scheme));
 }
 
 static JSValue
@@ -793,9 +807,79 @@ location_hash_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     return JS_UNDEFINED;
 }
 
+static JSValue
+location_username_get(JSContext *ctx, JSValueConst jsThis)
+{
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    Str s;
+
+    s = Strnew();
+    if (state->pu.user) {
+	Strcat_charp_n(s, state->pu.user, strlen(state->pu.user));
+    }
+    return JS_NewStringLen(ctx, s->ptr, s->length);
+}
+
+static JSValue
+location_username_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
+
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
+	return JS_EXCEPTION;
+    }
+
+    state->pu.user = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+location_password_get(JSContext *ctx, JSValueConst jsThis)
+{
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    Str s;
+
+    s = Strnew();
+    if (state->pu.pass) {
+	Strcat_charp_n(s, state->pu.pass, strlen(state->pu.pass));
+    }
+    return JS_NewStringLen(ctx, s->ptr, s->length);
+}
+
+static JSValue
+location_password_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+    char *str;
+
+    if ((str = js_get_cstr(ctx, val)) == NULL) {
+	return JS_EXCEPTION;
+    }
+
+    state->pu.pass = str;
+    state->url = parsedURL2Str(&state->pu);
+    state->refresh |= JS_LOC_REFRESH;
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+location_origin_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] =
+	"this.protocol + \"//\" + this.hostname + (this.port ? \":\" + this.port : \"\")";
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
 static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CFUNC_DEF("replace", 1, location_replace),
     JS_CFUNC_DEF("reload", 1, location_reload),
+    JS_CFUNC_DEF("toString", 1, location_to_string),
     JS_CGETSET_DEF("href", location_href_get, location_href_set),
     JS_CGETSET_DEF("protocol", location_protocol_get, location_protocol_set),
     JS_CGETSET_DEF("host", location_host_get, location_host_set),
@@ -804,140 +888,11 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CGETSET_DEF("pathname", location_pathname_get, location_pathname_set),
     JS_CGETSET_DEF("search", location_search_get, location_search_set),
     JS_CGETSET_DEF("hash", location_hash_get, location_hash_set),
+    JS_CGETSET_DEF("username", location_username_get, location_username_set),
+    JS_CGETSET_DEF("password", location_password_get, location_password_set),
+    JS_CGETSET_DEF("origin", location_origin_get, NULL),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Location", JS_PROP_CONFIGURABLE),
-};
-
-static JSValue
-dom_node_list_add(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    const char *entry;
-    char *script;
-
-    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
-	return JS_UNDEFINED;
-    }
-
-    script = Sprintf("if (this.element.className) {"
-		     "  let array = this.element.className.split(\' \');"
-		     "  let i = 0;"
-		     "  for (; i < array.length; i++) {"
-		     "    if (array[i] === \"%s\") {"
-		     "      break;"
-		     "    }"
-		     "  }"
-		     "  if (i == array.length) {"
-		     "    array.push(\"%s\");"
-		     "    this.element.className = array.join(\" \");"
-		     "  }"
-		     "} else {"
-		     "  this.element.className = \"%s\";"
-		     "}", entry, entry, entry)->ptr;
-    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
-
-    return JS_UNDEFINED;
-}
-
-static JSValue
-dom_node_list_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    const char *entry;
-    char *script;
-
-    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
-	return JS_UNDEFINED;
-    }
-
-    script = Sprintf("if (this.element.className) {"
-		     "  let array = this.element.className.split(\' \');"
-		     "  for (let i = 0; i < array.length; i++) {"
-		     "    if (array[i] === \"%s\") {"
-		     "      if (array.length == 1) {"
-		     "        this.element.className = \"\";"
-		     "      } else {"
-		     "        array.splice(i, 1);"
-		     "        this.element.className = array.join(\" \");"
-		     "      }"
-		     "      break;"
-		     "    }"
-		     "  }"
-		     "}", entry)->ptr;
-    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
-
-    return JS_UNDEFINED;
-}
-
-static JSValue
-dom_node_list_toggle(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    const char *entry;
-    char *script;
-
-    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
-	return JS_UNDEFINED;
-    }
-
-    script = Sprintf("if (this.element.className) {"
-		     "  let array = this.element.className.split(\' \');"
-		     "  let i = array.length - 1;"
-		     "  for (; i >= 0; i--) {"
-		     "    if (array[i] === \"%s\") {"
-		     "      if (array.length == 1) {"
-		     "        this.element.className = \"\";"
-		     "      } else {"
-		     "        array.splice(i, 1);"
-		     "        this.element.className = array.join(\" \");"
-		     "      }"
-		     "      break;"
-		     "    }"
-		     "  }"
-		     "  if (i < 0) {"
-		     "    array.push(\"%s\");"
-		     "    this.element.className = array.join(\" \");"
-		     "  }"
-		     "} else {"
-		     "  this.element.className = \"%s\";"
-		     "}", entry, entry, entry)->ptr;
-    JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
-
-    return JS_UNDEFINED;
-}
-
-static JSValue
-dom_node_list_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    const char *entry;
-    char *script;
-
-    if (argc < 1 || (entry = JS_ToCString(ctx, argv[0])) == NULL) {
-	return JS_UNDEFINED;
-    }
-
-    script = Sprintf("if (this.element.className) {"
-		     "  let array = this.element.className.split(\' \');"
-		     "  let flag = false;"
-		     "  for (let i = 0; i < array.length; i++) {"
-		     "    if (array[i] === \"%s\") {"
-		     "      flag = true;"
-		     "      break;"
-		     "    }"
-		     "  }"
-		     "  flag;"
-		     "} else {"
-		     "  false;"
-		     "}", entry)->ptr;
-
-    return JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG);
-}
-
-static struct {
-    char *name;
-    JSCFunction *func;
-} DomNodeListFuncs[] = {
-    { "add", dom_node_list_add } ,
-    { "remove", dom_node_list_remove } ,
-    { "toggle", dom_node_list_toggle } ,
-    { "contains", dom_node_list_contains } ,
 };
 
 static const JSClassDef CanvasRenderingContext2DClass = {
@@ -1069,8 +1024,6 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
     const char *str = JS_ToCString(ctx, tagname);
     JSValue style;
-    JSValue classlist;
-    int i;
 
     init_children(ctx, obj, str);
 
@@ -1089,9 +1042,6 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     /* Element */
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
-    JS_SetPropertyStr(ctx, obj, "className", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, obj, "classList", JS_Eval(ctx, "new DOMTokenList();", 19,
-						     "<input>", EVAL_FLAG));
     JS_SetPropertyStr(ctx, obj, "querySelector",
 		      JS_Eval(ctx, "document.querySelector;", 23, "<input>", EVAL_FLAG));
     JS_SetPropertyStr(ctx, obj, "querySelectorAll",
@@ -1110,14 +1060,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "scrollLeft", JS_NewInt32(ctx, 0));
     JS_SetPropertyStr(ctx, obj, "scrollTop", JS_NewInt32(ctx, 0));
 
-    classlist = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, classlist, "element", JS_DupValue(ctx, obj));
-    for (i = 0; i < sizeof(DomNodeListFuncs) / sizeof(DomNodeListFuncs[0]); i++) {
-	JS_SetPropertyStr(ctx, classlist, DomNodeListFuncs[i].name,
-			  JS_NewCFunction(ctx, DomNodeListFuncs[i].func,
-					  DomNodeListFuncs[i].name, 1));
-    }
-    JS_SetPropertyStr(ctx, obj, "classList", classlist);
+    JS_SetPropertyStr(ctx, obj, "classList",
+		      JS_Eval(ctx, "new DOMTokenList();", 19, "<input>", EVAL_FLAG));;
 
     /* HTMLElement */
     style = JS_NewObject(ctx);
@@ -1455,43 +1399,10 @@ element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     return ret;
 }
 
-static JSValue
-element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    if (argc < 2) {
-	return JS_EXCEPTION;
-    }
-
-    if (JS_IsString(argv[0])) {
-	const char *key = JS_ToCString(ctx, argv[0]);
-	JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
-	JS_FreeCString(ctx, key);
-    }
-
-    return JS_UNDEFINED;
-}
-
-static JSValue
-element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    if (argc < 1) {
-	return JS_EXCEPTION;
-    }
-
-    if (JS_IsString(argv[0])) {
-	const char *key = JS_ToCString(ctx, argv[0]);
-	JSValue prop = JS_GetPropertyStr(ctx, jsThis, key);
-	JS_FreeCString(ctx, key);
-
-	if (!JS_IsUndefined(prop)) {
-	    return prop;
-	} else {
-	    JS_FreeValue(ctx, prop);
-	}
-    }
-
-    return JS_NULL;
-}
+static JSValue element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
+				     JSValueConst *argv);
+static JSValue element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
+				     JSValueConst *argv);
 
 static JSValue
 element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
@@ -1757,7 +1668,30 @@ element_get_elements_by_class_name(JSContext *ctx, JSValueConst jsThis,
 static JSValue
 element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return JS_DupValue(ctx, jsThis);
+    if (argc >= 1 && JS_ToBool(ctx, argv[0])) {
+	char script[] =
+	    "{"
+	    "  let element = Object.assign(new HTMLElement(this.tagName), this); /* XXX */"
+	    "  element.parentNode = element.parentElement = null;"
+	    "  element.childNodes = element.children = new HTMLCollection();"
+	    "  w3m_cloneNode(element, this);"
+	    "  element;"
+	    "}";
+	return backtrace(ctx, script,
+			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
+				     "<input>", EVAL_FLAG));
+    } else {
+	char script[] =
+	    "{"
+	    "  let element = Object.assign(new HTMLElement(this.tagName), this); /* XXX */"
+	    "  element.parentNode = element.parentElement = null;"
+	    "  element.childNodes = element.children = new HTMLCollection();"
+	    "  element;"
+	    "}";
+	return backtrace(ctx, script,
+			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
+				     "<input>", EVAL_FLAG));
+    }
 }
 
 static JSValue
@@ -1951,6 +1885,25 @@ element_child_count_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
+element_class_name_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] = "this.classList.value;";
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_class_name_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    const char *name = JS_ToCString(ctx, val);
+    char *script = Sprintf("this.classList.value = \"%s\";", name)->ptr;
+    JS_FreeCString(ctx, name);
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+}
+
+static JSValue
 element_click(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JS_SetPropertyStr(ctx, jsThis, "checked", JS_TRUE);
@@ -1980,6 +1933,51 @@ static JSValue
 element_to_data_url(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     return JS_NewString(ctx, "data:,");
+}
+
+static JSValue
+element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+{
+    Str str;
+    ParsedURL pu;
+
+    if ((str = get_str(ctx, val)) == NULL) {
+	return JS_EXCEPTION;
+    }
+
+    parseURL(str->ptr, &pu, NULL);
+    JS_SetPropertyStr(ctx, jsThis, "host",
+		      JS_NewString(ctx, pu.host ? pu.host : ""));
+    JS_SetPropertyStr(ctx, jsThis, "hostname",
+		      JS_NewString(ctx, pu.host ? pu.host : "")); /* XXX remove port */
+    JS_SetPropertyStr(ctx, jsThis, "hash",
+		      JS_NewString(ctx, pu.label ? Sprintf("#%s", pu.label)->ptr : ""));
+    JS_SetPropertyStr(ctx, jsThis, "pathname",
+		      JS_NewString(ctx, pu.file ? pu.file : ""));
+    JS_SetPropertyStr(ctx, jsThis, "search",
+		      JS_NewString(ctx, pu.query ? Sprintf("?%s", pu.query)->ptr : ""));
+    JS_SetPropertyStr(ctx, jsThis, "protocol", JS_NewString(ctx, get_url_scheme_str(pu.scheme)));
+    JS_SetPropertyStr(ctx, jsThis, "port",
+		      JS_NewString(ctx, pu.has_port ? Sprintf("%d", pu.port)->ptr : ""));
+    JS_SetPropertyStr(ctx, jsThis, "username",
+		      JS_NewString(ctx, pu.user ? pu.user : ""));
+    JS_SetPropertyStr(ctx, jsThis, "password",
+		      JS_NewString(ctx, pu.pass ? pu.pass : ""));
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_href_get(JSContext *ctx, JSValueConst jsThis)
+{
+    char script[] =
+	"(this.protocol ? this.protocol + \"//\" : \"\") + "
+	"(this.username ? (this.password ? this.username + \":\" + this.password : this.username) "
+	                 " + \"@\" : \"\") + "
+	"this.host + this.pathname + this.hash + this.search;";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
 static const JSCFunctionListEntry ElementFuncs[] = {
@@ -2023,6 +2021,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("insertAdjacentHTML", 1, element_insert_adjacent_html),
     JS_CFUNC_DEF("getAttributeNode", 1, element_get_attribute_node),
     JS_CGETSET_DEF("childElementCount", element_child_count_get, NULL),
+    JS_CGETSET_DEF("className", element_class_name_get, element_class_name_set),
 
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
@@ -2033,6 +2032,9 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("blur", 1, element_focus_or_blur),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
+
+    /* XXX HTMLAnchorElement */
+    JS_CGETSET_DEF("href", element_href_get, element_href_set),
 
     /* XXX HTMLInputElement */
     JS_CFUNC_DEF("select", 1, element_select),
@@ -2048,6 +2050,72 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
     JS_CFUNC_DEF("reset", 1, html_form_element_reset),
 };
+
+static JSValue
+element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc < 2) {
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	const char *key = JS_ToCString(ctx, argv[0]);
+	size_t i;
+
+	for (i = 0; i < sizeof(ElementFuncs) / sizeof(ElementFuncs[0]); i++) {
+	    if (strcmp(key, ElementFuncs[i].name) == 0) {
+		if (ElementFuncs[i].def_type == JS_DEF_CGETSET) {
+		    (*ElementFuncs[i].u.getset.set.setter)(ctx, jsThis,
+							   JS_DupValue(ctx, argv[1]));
+		    goto end;
+		}
+	    }
+	}
+
+	JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
+
+    end:
+	JS_FreeCString(ctx, key);
+    }
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc < 1) {
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	const char *key = JS_ToCString(ctx, argv[0]);
+	size_t i;
+	JSValue prop;
+
+	for (i = 0; i < sizeof(ElementFuncs) / sizeof(ElementFuncs[0]); i++) {
+	    if (strcmp(key, ElementFuncs[i].name) == 0) {
+		if (ElementFuncs[i].def_type == JS_DEF_CGETSET) {
+		    prop = (*ElementFuncs[i].u.getset.get.getter)(ctx, jsThis);
+		    goto end;
+		}
+	    }
+	}
+
+	prop = JS_GetPropertyStr(ctx, jsThis, key);
+
+    end:
+	JS_FreeCString(ctx, key);
+
+	if (!JS_IsUndefined(prop)) {
+	    return prop;
+	} else {
+	    JS_FreeValue(ctx, prop);
+	}
+    }
+
+    return JS_NULL;
+}
 
 static void
 history_final(JSRuntime *rt, JSValue val) {
@@ -2155,6 +2223,8 @@ navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     state->appversion = NULL;
     state->useragent = NULL;
 
+    JS_SetPropertyStr(ctx, obj, "product", JS_NewString(ctx, "Gecko")); /* XXX Deprecated */
+
     JS_SetOpaque(obj, state);
 
     return obj;
@@ -2219,6 +2289,30 @@ navigator_appversion_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
+navigator_language_get(JSContext *ctx, JSValueConst jsThis)
+{
+#if LANG == JA
+    const char lang[] = "ja-JP";
+#else
+    const char lang[] = "en-US";
+#endif
+
+    return JS_NewStringLen(ctx, lang, sizeof(lang) - 1);
+}
+
+static JSValue
+navigator_vendor_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_NewStringLen(ctx, "w3m", 3);
+}
+
+static JSValue
+navigator_online_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_TRUE;
+}
+
+static JSValue
 navigator_useragent_get(JSContext *ctx, JSValueConst jsThis)
 {
     NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
@@ -2249,6 +2343,9 @@ static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("appVersion", navigator_appversion_get, NULL),
     JS_CGETSET_DEF("userAgent", navigator_useragent_get, NULL),
     JS_CGETSET_DEF("cookieEnabled", navigator_cookieenabled_get, NULL),
+    JS_CGETSET_DEF("language", navigator_language_get, NULL),
+    JS_CGETSET_DEF("vendor", navigator_vendor_get, NULL),
+    JS_CGETSET_DEF("onLine", navigator_online_get, NULL),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Navigator", JS_PROP_CONFIGURABLE),
 };
@@ -2401,6 +2498,33 @@ document_has_focus(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     return JS_TRUE;
 }
 
+static JSValue
+document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc >= 1 && JS_ToBool(ctx, argv[0])) {
+	char script[] =
+	    "{"
+	    "  let doc = Object.assign(new Document(), this);"
+	    "  w3m_initDocumentTree(doc);"
+	    "  w3m_cloneNode(doc, this);"
+	    "  doc;"
+	    "}";
+	return backtrace(ctx, script,
+			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
+				     "<input>", EVAL_FLAG));
+    } else {
+	char script[] =
+	    "{"
+	    "  let doc = Object.assign(new Document(), this);"
+	    "  w3m_initDocumentTree(doc);"
+	    "  doc;"
+	    "}";
+	return backtrace(ctx, script,
+			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
+				     "<input>", EVAL_FLAG));
+    }
+}
+
 static const JSCFunctionListEntry DocumentFuncs[] = {
     /* Node (see ElementFuncs) */
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
@@ -2414,7 +2538,7 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CGETSET_DEF("nextSibling", element_next_sibling_get, NULL),
     JS_CGETSET_DEF("previousSibling", element_previous_sibling_get, NULL),
     JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
-    JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
+    JS_CFUNC_DEF("cloneNode", 1, document_clone_node),
     JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
     JS_CFUNC_DEF("contains", 1, element_contains),
 
@@ -2567,10 +2691,7 @@ xml_http_request_add_event_listener(JSContext *ctx, JSValueConst jsThis, int arg
     }
 
     str = JS_ToCString(ctx, argv[0]);
-    if (str != NULL && strcmp(str, "load") == 0) {
-	/* XXX should be array */
-	JS_SetPropertyStr(ctx, jsThis, "onload", JS_DupValue(ctx, argv[1]));
-    }
+    JS_SetPropertyStr(ctx, jsThis, str, JS_DupValue(ctx, argv[1]));
     JS_FreeCString(ctx, str);
 
     return JS_UNDEFINED;
@@ -2644,11 +2765,14 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     char *suffix;
     Str str;
     JSValue response;
-    char *events[] = { "onload", "onreadystatechange" };
+    char *ctype;
+    char *beg_events[] = { "loadstart", "onloadstart" };
+    char *end_events[] = { "progress", "load", "onload", "loadend", "onloadend", "onreadystatechange" };
     int i;
     FormList *request = NULL;
     int orig_ct;
     int orig_ua;
+    JSValue func;
 
     if (state->method == FORM_METHOD_POST && argc >= 1) {
 	const char *cstr;
@@ -2674,6 +2798,16 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     orig_ua = override_user_agent;
     override_content_type = state->override_content_type;
     override_user_agent = state->override_user_agent;
+
+    for (i = 0; i < sizeof(beg_events) / sizeof(beg_events[0]); i++) {
+	func = JS_GetPropertyStr(ctx, jsThis, beg_events[i]);
+	if (!JS_IsFunction(ctx, func)) {
+	    func = JS_GetPropertyStr(ctx, func, "handleEvent");
+	}
+	if (JS_IsFunction(ctx, func)) {
+	    JS_FreeValue(ctx, JS_Call(ctx, func, jsThis, 0, NULL));
+	}
+    }
 
     uf = openURL(state->request, &pu, &ctxstate->buf->currentURL, &option, request,
 		 state->extra_headers, ouf, &hr, &status);
@@ -2708,16 +2842,50 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     }
     ISclose(uf.stream);
 
+#if 0
+    {
+	FILE *fp = fopen("scriptlog.txt", "a");
+	TextListItem *i;
+
+	fprintf(fp, "====> RESPONSE %d from %s:\n",
+		http_response_code, parsedURL2Str(&ctxstate->buf->currentURL)->ptr);
+	for (i = state->response_headers->first; i != NULL; i = i->next) {
+	    fprintf(fp, i->ptr);
+	    fprintf(fp, "\n");
+	}
+	fprintf(fp, str->ptr);
+	fprintf(fp, "====\n");
+	fclose(fp);
+    }
+#endif
+
+    /* XXX should be the final URL obtained after any redirects. */
+    JS_SetPropertyStr(ctx, jsThis, "responseURL",
+		      JS_NewString(ctx, parsedURL2Str(&ctxstate->buf->currentURL)->ptr));
+
     response = JS_NewStringLen(ctx, str->ptr, str->length);
     JS_SetPropertyStr(ctx, jsThis, "responseText", response);
+
+    ctype = checkHeader(header_buf, "Content-Type");
+    if (ctype != NULL && strcasestr(ctype, "application/json")) {
+	JSValue json = JS_ParseJSON(ctx, str->ptr, str->length, NULL);
+	JS_SetPropertyStr(ctx, jsThis, "response", json);
+	JS_SetPropertyStr(ctx, jsThis, "responseType", JS_NewString(ctx, "json"));
+    } else {
+	JS_SetPropertyStr(ctx, jsThis, "response", JS_DupValue(ctx, response)); /* XXX */
+	JS_SetPropertyStr(ctx, jsThis, "responseType", JS_NewString(ctx, "text"));
+    }
 
     JS_SetPropertyStr(ctx, jsThis, "readyState", JS_NewInt32(ctx, 4));
 
 end:
-    for (i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
-	JSValue onload = JS_GetPropertyStr(ctx, jsThis, events[i]);
-	if (JS_IsFunction(ctx, onload)) {
-	    JS_FreeValue(ctx, JS_Call(ctx, onload, jsThis, 0, NULL));
+    for (i = 0; i < sizeof(end_events) / sizeof(end_events[0]); i++) {
+	func = JS_GetPropertyStr(ctx, jsThis, end_events[i]);
+	if (!JS_IsFunction(ctx, func)) {
+	    func = JS_GetPropertyStr(ctx, func, "handleEvent");
+	}
+	if (JS_IsFunction(ctx, func)) {
+	    JS_FreeValue(ctx, JS_Call(ctx, func, jsThis, 0, NULL));
 	}
     }
 
@@ -2856,28 +3024,91 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}"
 	""
-	"class DOMTokenList {"
-	"  constructor() {"
-	"    this.length = 0;"
-	"    this.value = \"\";"
+	"class DOMTokenList extends Array {"
+	"  get value() {"
+	"    return this.join(\" \");"
+	"  }"
+	"  set value(val) {"
+	"    this.splice(0);"
+	"    for (let element of val.split(\" \")) {"
+	"      this.push(element);"
+	"    }"
 	"  }"
 	"  item(index) {"
-	"    return undefined;"
+	"    return this[index];"
 	"  }"
 	"  contains(token) {"
-	"    return false;"
+	"    let idx = this.indexOf(token);"
+	"    if (idx != -1) {"
+	"        return true;"
+	"    } else {"
+	"      return false;"
+	"    }"
 	"  }"
-	"  add(token1, ...tokens) {}"
-	"  remove(token1, ...tokens) {}"
-	"  replace(oldToken, newToken) {}"
+	"  add(token1, ...tokens) {"
+	"    this.push(token1);"
+	"    this.concat(tokens);"
+	"  }"
+	"  remove(token1, ...tokens) {"
+	"    let idx = this.indexOf(token1);"
+	"    if (idx != -1) {"
+	"      this.splice(idx, 1);"
+	"    }"
+	"    for (let i = 0; i < tokens.length; i++) {"
+	"      idx = this.indexOf(tokens[i]);"
+	"      if (idx != -1) {"
+	"        this.splice(idx, 1);"
+	"      }"
+	"    }"
+	"  }"
+	"  replace(oldToken, newToken) {"
+	"    let idx = this.indexOf(oldToken);"
+	"    if (idx != -1) {"
+	"      this.splice(idx, 1, newToken);"
+	"    }"
+	"  }"
 	"  supports(token) {"
-	"    return false;"
+	"    if (this.indexOf(token) != -1) {"
+	"      return true;"
+	"    } else {"
+	"      return false;"
+	"    }"
 	"  }"
-	"  toggle(token, ...force) {}"
-	"  entries() { return []; }"
-	"  forEach(callback, ...args) {}"
-	"  keys() { return []; }"
-	"  values() { return []; }"
+	"  toggle(token, ...force) {"
+	"    /* fore is ignored for now */"
+	"    let idx = this.indexOf(token);"
+	"    if (idx != -1) {"
+	"      this.splice(idx, 1);"
+	"      return false;"
+	"    } else {"
+	"      this.push(token);"
+	"      return true;"
+	"    }"
+	"  }"
+	"  entries() {"
+	"    let entries = new Array();"
+	"    for (let i = 0; i < this.length; i++) {"
+	"      entries.push(new Array(i, this[i]));"
+	"    }"
+	"    return entries;"
+	"  }"
+	"  forEach(callback, ...args) {"
+	"    for (let i = 0; i < this.length; i++) {"
+	"      if (args.length == 0) {"
+	"        callback(this[i], i, this);"
+	"      } else {"
+	"        args[0].callback(this[i], i, this);"
+	"      }"
+	"    }"
+	"  }"
+	"  keys() {"
+	"    let keys = new Array();"
+	"    for (let i = 0; i < this.length; i++) {"
+	"      keys.push(i);"
+	"    }"
+	"    return keys;"
+	"  }"
+	"  values() { return this; }"
 	"}"
 	""
 	"class MutationObserver {"
@@ -2927,7 +3158,12 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}"
 	""
-
+	"class URL extends Location {"
+	"  /* XXX */"
+	"  static createObjectURL(object) { return \"blob:null/0\"; }"
+	"  static revokeObjectURL(objectURL) {}"
+	"}"
+	""
 	"/* Element.attributes */"
 	"function w3m_elementAttributes(obj) {"
 	"  let attribute_keys = Object.keys(obj);"
@@ -2962,7 +3198,19 @@ js_html_init(Buffer *buf)
 	"    attrs[key] = value;"
 	"  }"
 	"  return attrs;"
-	"}";
+	"}"
+	""
+	"function w3m_cloneNode(dst, src) {"
+	"  for(let i = 0; i < src.childNodes.length; i++) {"
+	"    let element = Object.assign(new HTMLElement(src.childNodes[i].tagName,"
+	"                                src.childNodes[i]));"
+	"    element.parentNode = element.parentElement = null;"
+	"    element.childNodes = element.children = new HTMLCollection();"
+	"    dst.appendChild(element);"
+	"    w3m_cloneNode(element, src.childNodes[i]);"
+	"  }"
+	"}"
+	"";
 
     if (term_ppc == 0) {
 	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
@@ -3115,11 +3363,12 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
+    char seq[] = "createElement(\"a\");function o(t){";
     Str str = Strnew();
-    while ((p = strstr(beg, "er=function(e){"))) {
-	Strcat_charp_n(str, beg, p - beg + 15);
-	Strcat_charp(str, "confirm(Hn.a);");
-        beg = p + 15;
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(n.pathname);");
+        beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
@@ -3388,12 +3637,15 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 
 		n = attr->children;
 		if (n && n->type == XML_TEXT_NODE) {
-		    if (strcasecmp((char*)attr->name, "class") == 0) {
-			name = "className";
-		    } else {
-			name = to_lower((char*)attr->name);
-		    }
 		    value = JS_NewString(ctx, (char*)n->content);
+
+		    if (strcasecmp((char*)attr->name, "class") == 0) {
+			element_class_name_set(ctx, jsnode, value);
+			JS_FreeValue(ctx, value);
+			continue;
+		    }
+
+		    name = to_lower((char*)attr->name);
 #ifdef DOM_DEBUG
 		    fprintf(fp, "attr %s=%s ", name, n->content);
 #endif

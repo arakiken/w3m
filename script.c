@@ -430,12 +430,6 @@ script_buf2js(Buffer *buf, void *interp)
 #endif
 
 	js_eval(interp,
-		"class URL extends Location {"
-		"  /* XXX */"
-		"  static createObjectURL(object) { return \"blob:null/0\"; }"
-		"  static revokeObjectURL(objectURL) {}"
-		"}"
-		""
 		"var self = globalThis;"
 		"var window = globalThis;"
 		"window.parent = window;"
@@ -805,6 +799,10 @@ script_buf2js(Buffer *buf, void *interp)
 		"  /* performance.now() should return DOMHighResTimeStamp */"
 		"  return Date.now();"
 		"};"
+		""
+		"/* deprecated */"
+		"performance.timing = new Object();"
+		"performance.timing.responseStart = null; /* XXX */"
 		""
 		"var w3m_storage = new Object(); /* XXX */"
 		"sessionStorage.getItem = localStorage.getItem = function(key) {"
@@ -1291,7 +1289,7 @@ set_cookie(char *p, ParsedURL *pu)
     char *emsg;
     Str name = Strnew(), value = Strnew(), domain = NULL, path = NULL,
 	comment = NULL, commentURL = NULL, port = NULL, tmp2;
-    int version, quoted, flag = 0;
+    int version = 0 /* XXX Ignore Set-Cookie2 (see file.c) */, quoted, flag = 0;
     time_t expires = (time_t) - 1;
 
     SKIP_BLANKS(p);
@@ -1738,12 +1736,7 @@ onload(void *interp)
 	    "}"
 	    ""
 	    "w3m_element_onload(document);"
-	    "w3m_onload(window);"
-	    ""
-	    "if (window.onload != undefined) {"
-	    "  window.onload();"
-	    "  window.onload = undefined;"
-	    "}");
+	    "w3m_onload(window);");
 }
 
 static int
