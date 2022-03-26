@@ -746,8 +746,41 @@ location_pathname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 }
 
 static JSValue
+location_search_params_get(JSContext *ctx, JSValueConst jsThis)
+{
+    JSValue params = JS_GetPropertyStr(ctx, jsThis, "w3m_searchParams");
+
+    if (!JS_IsObject(params)) {
+	LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
+	char *script;
+
+	if (state->pu.query) {
+	    script = Sprintf("new URLSearchParams(\"%s\");", state->pu.query)->ptr;
+	} else {
+	    script = "new URLSearchParams();";
+	}
+
+	params = JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+	JS_SetPropertyStr(ctx, jsThis, "w3m_searchParams", JS_DupValue(ctx, params));
+    }
+
+    return params;
+}
+
+static JSValue
 location_search_get(JSContext *ctx, JSValueConst jsThis)
 {
+#if 1
+    char script[] =
+	"{"
+	"  let params = this.searchParams.toString();"
+	"  if (params) {"
+	"    params = \"?\" + params;"
+	"  }"
+	"  params;"
+	"}";
+    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+#else
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
 
@@ -757,19 +790,27 @@ location_search_get(JSContext *ctx, JSValueConst jsThis)
 	Strcat_charp_n(s, state->pu.query, strlen(state->pu.query));
     }
     return JS_NewStringLen(ctx, s->ptr, s->length);
+#endif
 }
 
 static JSValue
 location_search_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
-    char *str;
+    LocationState *state;
+    char *query;
+    char *script;
+    JSValue params;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((query = js_get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
-    state->pu.query = str;
+    script = Sprintf("new URLSearchParams(\"%s\");", query)->ptr;
+    params = JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+    JS_SetPropertyStr(ctx, jsThis, "w3m_searchParams", JS_DupValue(ctx, params));
+
+    state = JS_GetOpaque(jsThis, LocationClassID);
+    state->pu.query = query;
     state->url = parsedURL2Str(&state->pu);
     state->refresh |= JS_LOC_REFRESH;
 
@@ -887,6 +928,7 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CGETSET_DEF("port", location_port_get, location_port_set),
     JS_CGETSET_DEF("pathname", location_pathname_get, location_pathname_set),
     JS_CGETSET_DEF("search", location_search_get, location_search_set),
+    JS_CGETSET_DEF("searchParams", location_search_params_get, NULL),
     JS_CGETSET_DEF("hash", location_hash_get, location_hash_set),
     JS_CGETSET_DEF("username", location_username_get, location_username_set),
     JS_CGETSET_DEF("password", location_password_get, location_password_set),
@@ -1947,9 +1989,10 @@ element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 
     parseURL(str->ptr, &pu, NULL);
     JS_SetPropertyStr(ctx, jsThis, "host",
-		      JS_NewString(ctx, pu.host ? pu.host : ""));
+		      JS_NewString(ctx, pu.host ?
+				   (pu.has_port ? Sprintf("%s:%d", pu.host, pu.port)->ptr : pu.host) : ""));
     JS_SetPropertyStr(ctx, jsThis, "hostname",
-		      JS_NewString(ctx, pu.host ? pu.host : "")); /* XXX remove port */
+		      JS_NewString(ctx, pu.host ? pu.host : ""));
     JS_SetPropertyStr(ctx, jsThis, "hash",
 		      JS_NewString(ctx, pu.label ? Sprintf("#%s", pu.label)->ptr : ""));
     JS_SetPropertyStr(ctx, jsThis, "pathname",
@@ -3158,12 +3201,6 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}"
 	""
-	"class URL extends Location {"
-	"  /* XXX */"
-	"  static createObjectURL(object) { return \"blob:null/0\"; }"
-	"  static revokeObjectURL(objectURL) {}"
-	"}"
-	""
 	"/* Element.attributes */"
 	"function w3m_elementAttributes(obj) {"
 	"  let attribute_keys = Object.keys(obj);"
@@ -3200,6 +3237,93 @@ js_html_init(Buffer *buf)
 	"  return attrs;"
 	"}"
 	""
+	"class URLSearchParams {"
+	"  constructor(init) {"
+	"    this.param_keys = new Array();"
+	"    this.param_values = new Array();"
+	"    if (!init) {"
+	"      return;"
+	"    }"
+	"    if (init.charAt(0) === \"?\") {"
+	"      init = init.slice(1);"
+	"    }"
+	"    let pairs = init.split(\"&\");"
+	"    for (let i = 0; i < pairs.length; i++) {"
+	"      let array = pairs[i].split(\"=\");"
+	"      this.param_keys.push(array[0]);"
+	"      if (array.length == 1) {"
+	"        this.param_values.push(\"\");"
+	"      } else {"
+	"        this.param_values.push(array[1]);"
+	"      }"
+	"    }"
+	"  }"
+	"  append(name, value) {"
+	"    this.param_keys.push(name);"
+	"    this.param_values.push(value);"
+	"  }"
+	"  delete(name) {"
+	"    for(let i = 0; i < this.param_keys.length; i++) {"
+	"      if (this.param_keys[i] === name) {"
+	"        this.param_keys.splice(i, 1);"
+	"        this.param_values.splice(i, 1);"
+	"      }"
+	"    }"
+	"  }"
+	"  entries() {"
+	"    let entries = new Array();"
+	"    for(let i = 0; i < this.param_keys.length; i++) {"
+	"      entries.push(new Array(this.param_keys[i], this.param_values[i]));"
+	"    }"
+	"    return entries;"
+	"  }"
+	"  getAll(name) {"
+	"    let values = new Array();"
+	"    for(let i = 0; i < this.param_keys.length; i++) {"
+	"      if (this.param_keys[i] === name) {"
+	"        values.push(this.param_values[i]);"
+	"      }"
+	"    }"
+	"    return values;"
+	"  }"
+	"  get(name) {"
+	"    for(let i = 0; i < this.param_keys.length; i++) {"
+	"      if (this.param_keys[i] === name) {"
+	"        return this.param_values[i];"
+	"      }"
+	"    }"
+	"    return null;"
+	"  }"
+	"  has(name) {"
+	"    for(let i = 0; i < this.param_keys.length; i++) {"
+	"      if (this.param_keys[i] === name) {"
+	"        return true;"
+	"      }"
+	"    }"
+	"    return false;"
+	"  }"
+	"  keys() {"
+	"    return this.param_keys;"
+	"  }"
+	"  values() {"
+	"    return this.param_values;"
+	"  }"
+	"  toString() {"
+	"    let str = \"\";"
+	"    let i;"
+	"    for(i = 0; i < this.param_keys.length - 1; i++) {"
+	"      str += this.param_keys[i];"
+	"      str += \"=\";"
+	"      str += this.param_values[i];"
+	"      str += \"&\";"
+	"    }"
+	"    str += this.param_keys[i];"
+	"    str += \"=\";"
+	"    str += this.param_values[i];"
+	"    return str;"
+	"  }"
+	"}"
+	""
 	"function w3m_cloneNode(dst, src) {"
 	"  for(let i = 0; i < src.childNodes.length; i++) {"
 	"    let element = Object.assign(new HTMLElement(src.childNodes[i].tagName,"
@@ -3209,8 +3333,13 @@ js_html_init(Buffer *buf)
 	"    dst.appendChild(element);"
 	"    w3m_cloneNode(element, src.childNodes[i]);"
 	"  }"
-	"}"
-	"";
+	"}";
+    char script2[] =
+	"class URL extends Location {"
+	"  /* XXX */"
+	"  static createObjectURL(object) { return \"blob:null/0\"; }"
+	"  static revokeObjectURL(objectURL) {}"
+	"}";
 
     if (term_ppc == 0) {
 	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
@@ -3285,6 +3414,9 @@ js_html_init(Buffer *buf)
 		 CanvasRenderingContext2DFuncs,
 		 sizeof(CanvasRenderingContext2DFuncs) / sizeof(CanvasRenderingContext2DFuncs[0]),
 		 &CanvasRenderingContext2DClass, canvas_rendering_context2d_new);
+
+    JS_FreeValue(ctx, backtrace(ctx, script,
+				JS_Eval(ctx, script2, sizeof(script2) - 1, "<input>", EVAL_FLAG)));
 
     /* window object */
     state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
