@@ -1,3 +1,34 @@
+2022-04-08  Rene Kita  <mail@rkta.de>
+
+	Add some missing checks to configure
+	Origin: https://github.com/tats/w3m/pull/221
+	* acinclude.m4, configure: Check for linux/fb.h when configuring.
+	* configure, configure.ac: Let configure fail if Perl is not in $PATH.
+	* acinclude.m4, configure: Let configure fail if no terminal library
+	is found.
+	* .gitignore: Ignore autom4te cache directory.
+
+	* posubst.in: Do not swallow errors from GCC.
+	Use strict and warnings in posubst.
+	Origin: https://github.com/tats/w3m/pull/220
+
+2022-04-06  Tatsuya Kinoshita  <tats@debian.org>
+
+	* po/it.po: Adjust spacing in menu strings.
+	cf. https://github.com/tats/w3m/issues/225
+
+	* po/zh_CN.po, po/zh_TW.po: Fix typo in menu strings.
+
+2022-04-05  Markus Hiereth  <translation@hiereth.de>
+
+	* po/de.po: Updated German message catalogue.
+	Origin: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1003936#5
+
+2022-04-05  Sebastian Rasmussen  <sebras@gmail.com>
+
+	* po/LINGUAS, po/sv_SE.po: Add Swedish translation.
+	Origin: https://github.com/tats/w3m/pull/209
+
 2022-02-19  Rene Kita  <mail@rkta.de>
 
 	* url.c: Check for end of string when parsing Gopher URLs.
@@ -28,7 +59,7 @@
 
 2021-10-26  Kuang-che Wu  <kcwu@google.com>
 
-	* istream.c: fix StrStream memory leak.
+	* istream.c: Fix StrStream memory leak.
 	Origin: https://github.com/tats/w3m/pull/203
 
 2021-10-26  bptato  <nincsnevem662@gmail.com>
