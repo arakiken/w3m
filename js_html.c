@@ -90,6 +90,23 @@ backtrace(JSContext *ctx, char *script, JSValue eval_ret)
 #define backtrace(ctx, script, eval_ret) (eval_ret)
 #endif
 
+static char *
+get_cstr(JSContext *ctx, JSValue value)
+{
+    const char *str;
+    size_t len;
+    char *new_str;
+
+    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
+	return NULL;
+    }
+
+    new_str = allocStr(str, len);
+    JS_FreeCString(ctx, str);
+
+    return new_str;
+}
+
 static Str
 get_str(JSContext *ctx, JSValue value)
 {
@@ -632,7 +649,7 @@ location_host_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *p, *q;
 
-    if ((p = js_get_cstr(ctx, val)) == NULL) {
+    if ((p = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -667,7 +684,7 @@ location_hostname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *str;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((str = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -734,7 +751,7 @@ location_pathname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *str;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((str = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -801,7 +818,7 @@ location_search_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *script;
     JSValue params;
 
-    if ((query = js_get_cstr(ctx, val)) == NULL) {
+    if ((query = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -837,7 +854,7 @@ location_hash_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *str;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((str = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -867,7 +884,7 @@ location_username_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *str;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((str = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -897,7 +914,7 @@ location_password_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     char *str;
 
-    if ((str = js_get_cstr(ctx, val)) == NULL) {
+    if ((str = get_cstr(ctx, val)) == NULL) {
 	return JS_EXCEPTION;
     }
 
@@ -1439,6 +1456,14 @@ element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JS_FreeValue(ctx, children);
 
     return ret;
+}
+
+static JSValue
+element_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    char script[] = "if (this.parentElement) { this.parentElement.removeChild(this); }";
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
 static JSValue element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
@@ -2065,6 +2090,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("getAttributeNode", 1, element_get_attribute_node),
     JS_CGETSET_DEF("childElementCount", element_child_count_get, NULL),
     JS_CGETSET_DEF("className", element_class_name_get, element_class_name_set),
+    JS_CFUNC_DEF("remove", 1, element_remove),
 
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
@@ -2845,11 +2871,14 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     for (i = 0; i < sizeof(beg_events) / sizeof(beg_events[0]); i++) {
 	func = JS_GetPropertyStr(ctx, jsThis, beg_events[i]);
 	if (!JS_IsFunction(ctx, func)) {
-	    func = JS_GetPropertyStr(ctx, func, "handleEvent");
+	    JSValue func2 = JS_GetPropertyStr(ctx, func, "handleEvent");
+	    JS_FreeValue(ctx, func);
+	    func = func2;
 	}
 	if (JS_IsFunction(ctx, func)) {
 	    JS_FreeValue(ctx, JS_Call(ctx, func, jsThis, 0, NULL));
 	}
+	JS_FreeValue(ctx, func);
     }
 
     uf = openURL(state->request, &pu, &ctxstate->buf->currentURL, &option, request,
@@ -2925,11 +2954,14 @@ end:
     for (i = 0; i < sizeof(end_events) / sizeof(end_events[0]); i++) {
 	func = JS_GetPropertyStr(ctx, jsThis, end_events[i]);
 	if (!JS_IsFunction(ctx, func)) {
-	    func = JS_GetPropertyStr(ctx, func, "handleEvent");
+	    JSValue func2 = JS_GetPropertyStr(ctx, func, "handleEvent");
+	    JS_FreeValue(ctx, func);
+	    func = func2;
 	}
 	if (JS_IsFunction(ctx, func)) {
 	    JS_FreeValue(ctx, JS_Call(ctx, func, jsThis, 0, NULL));
 	}
+	JS_FreeValue(ctx, func);
     }
 
     return JS_UNDEFINED;
@@ -3152,6 +3184,22 @@ js_html_init(Buffer *buf)
 	"    return keys;"
 	"  }"
 	"  values() { return this; }"
+	"}"
+	""
+	"class DOMException {"
+	"  constructor(...args) {"
+	"    if (args.length < 1) {"
+	"      this.message = \"\";"
+	"    } else {"
+	"      this.message = args[0];"
+	"    }"
+	"    if (args.length < 2) {"
+	"      this.name = \"\";"
+	"    } else {"
+	"      this.name = args[1];"
+	"    }"
+	"    this.code = 0;"
+	"  }"
 	"}"
 	""
 	"class MutationObserver {"
@@ -3415,7 +3463,7 @@ js_html_init(Buffer *buf)
 		 sizeof(CanvasRenderingContext2DFuncs) / sizeof(CanvasRenderingContext2DFuncs[0]),
 		 &CanvasRenderingContext2DClass, canvas_rendering_context2d_new);
 
-    JS_FreeValue(ctx, backtrace(ctx, script,
+    JS_FreeValue(ctx, backtrace(ctx, script2,
 				JS_Eval(ctx, script2, sizeof(script2) - 1, "<input>", EVAL_FLAG)));
 
     /* window object */
@@ -3493,13 +3541,14 @@ js_eval2(JSContext *ctx, char *script) {
     Strcat_charp(str, beg);
     script = str->ptr;
 #elif 0
+    /* for facebook.com */
     char *beg = script;
     char *p;
-    char seq[] = "createElement(\"a\");function o(t){";
+    char seq[] = "if(g&&b){var c=b.childNodes;";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(n.pathname);");
+	Strcat_charp(str, "c.length = 0;");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -3549,19 +3598,7 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
 char *
 js_get_cstr(JSContext *ctx, JSValue value)
 {
-    const char *str;
-    size_t len;
-    char *new_str;
-
-    if (!JS_IsString(value) || (str = JS_ToCStringLen(ctx, &len, value)) == NULL) {
-	JS_FreeValue(ctx, value);
-
-	return NULL;
-    }
-
-    new_str = allocStr(str, len);
-
-    JS_FreeCString(ctx, str);
+    char *new_str = get_cstr(ctx, value);
     JS_FreeValue(ctx, value);
 
     return new_str;
