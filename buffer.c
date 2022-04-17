@@ -243,7 +243,7 @@ writeBufferName(Buffer *buf, int n)
 void
 gotoLine(Buffer *buf, int n)
 {
-    char msg[32];
+    char msg[36];
     Line *l = buf->firstLine;
 
     if (l == NULL)
@@ -288,7 +288,7 @@ gotoLine(Buffer *buf, int n)
 void
 gotoRealLine(Buffer *buf, int n)
 {
-    char msg[32];
+    char msg[36];
     Line *l = buf->firstLine;
 
     if (l == NULL)
