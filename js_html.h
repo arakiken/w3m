@@ -33,13 +33,6 @@ typedef struct _DocumentState {
     int open;
 } DocumentState;
 
-typedef struct _NavigatorState {
-    Str appcodename;
-    Str appname;
-    Str appversion;
-    Str useragent;
-} NavigatorState;
-
 typedef struct _HistoryState {
     int pos;
 } HistoryState;

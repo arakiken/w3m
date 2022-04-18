@@ -57,7 +57,7 @@ static void create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int inn
 
 #ifdef SCRIPT_DEBUG
 static JSValue
-backtrace(JSContext *ctx, char *script, JSValue eval_ret)
+backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
 {
 #if 0
     FILE *fp = fopen(Sprintf("w3mlog%p.txt", ctx)->ptr, "a");
@@ -788,7 +788,7 @@ static JSValue
 location_search_get(JSContext *ctx, JSValueConst jsThis)
 {
 #if 1
-    char script[] =
+    const char script[] =
 	"{"
 	"  let params = this.searchParams.toString();"
 	"  if (params) {"
@@ -928,7 +928,7 @@ location_password_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 location_origin_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"this.protocol + \"//\" + this.hostname + (this.port ? \":\" + this.port : \"\")";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
@@ -1145,7 +1145,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 
     /* XXX HTMLIFrameElement */
     if (strcasecmp(str, "IFRAME") == 0) {
-	char script[] =
+	const char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), document);"
 	    "  w3m_initDocumentTree(doc);"
@@ -1461,7 +1461,7 @@ element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 static JSValue
 element_remove(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    char script[] = "if (this.parentElement) { this.parentElement.removeChild(this); }";
+    const char script[] = "if (this.parentElement) { this.parentElement.removeChild(this); }";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -1538,7 +1538,7 @@ element_get_client_rects(JSContext *ctx, JSValueConst jsThis, int argc, JSValueC
 static JSValue
 element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
+    const char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -1546,7 +1546,7 @@ element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
 static JSValue
 element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"if (this.childNodes.length > 0) {"
 	"  this.childNodes[0];"
 	"} else {"
@@ -1560,7 +1560,7 @@ element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_last_child_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"if (this.childNodes.length > 0) {"
 	"  this.childNodes[this.childNodes.length - 1];"
 	"} else {"
@@ -1574,7 +1574,7 @@ element_last_child_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"if (this.parentNode && this.parentNode.childNodes.length >= 2) {"
 	"  let element = null;"
 	"  for (let i = this.parentNode.childNodes.length - 2; i >= 0; i--) {"
@@ -1595,7 +1595,7 @@ element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"if (this.parentNode) {"
         "  let element = null;"
 	"  for (let i = 1; i < this.parentNode.childNodes.length; i++) {"
@@ -1640,7 +1640,7 @@ element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 static JSValue
 element_attributes_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] = "w3m_elementAttributes(this);";
+    const char script[] = "w3m_elementAttributes(this);";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -1736,7 +1736,7 @@ static JSValue
 element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc >= 1 && JS_ToBool(ctx, argv[0])) {
-	char script[] =
+	const char script[] =
 	    "{"
 	    "  let element = Object.assign(new HTMLElement(this.tagName), this); /* XXX */"
 	    "  element.parentNode = element.parentElement = null;"
@@ -1748,7 +1748,7 @@ element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
 				     "<input>", EVAL_FLAG));
     } else {
-	char script[] =
+	const char script[] =
 	    "{"
 	    "  let element = Object.assign(new HTMLElement(this.tagName), this); /* XXX */"
 	    "  element.parentNode = element.parentElement = null;"
@@ -1764,7 +1764,7 @@ element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 static JSValue
 element_text_content_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"function w3m_getChildrenText(element) {"
 	"  text = \"\";"
 	"  for (let i = 0; i < element.children.length; i++) {"
@@ -1946,7 +1946,7 @@ element_get_attribute_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValu
 static JSValue
 element_child_count_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] = "this.children.length;";
+    const char script[] = "this.children.length;";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -1954,7 +1954,7 @@ element_child_count_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_class_name_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] = "this.classList.value;";
+    const char script[] = "this.classList.value;";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -2038,7 +2038,7 @@ element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 static JSValue
 element_href_get(JSContext *ctx, JSValueConst jsThis)
 {
-    char script[] =
+    const char script[] =
 	"(this.protocol ? this.protocol + \"//\" : \"\") + "
 	"(this.username ? (this.password ? this.username + \":\" + this.password : this.username) "
 	                 " + \"@\" : \"\") + "
@@ -2281,80 +2281,80 @@ static const JSClassDef NavigatorClass = {
 static JSValue
 navigator_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    JSValue obj;
-    NavigatorState *state;
-
-    obj = JS_NewObjectClass(ctx, NavigatorClassID);
-
-    state = (NavigatorState *)GC_MALLOC_UNCOLLECTABLE(sizeof(NavigatorState));
-    state->appcodename = NULL;
-    state->appname = NULL;
-    state->appversion = NULL;
-    state->useragent = NULL;
+    JSValue obj = JS_NewObjectClass(ctx, NavigatorClassID);
 
     JS_SetPropertyStr(ctx, obj, "product", JS_NewString(ctx, "Gecko")); /* XXX Deprecated */
 
-    JS_SetOpaque(obj, state);
-
     return obj;
+}
+
+static char *
+user_agent(void)
+{
+    return (UserAgent && *UserAgent) ? UserAgent : w3m_version;
 }
 
 static JSValue
 navigator_appcodename_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
+    char *name = user_agent();
+    char *p;
 
-    if (! state->appcodename)
-	state->appcodename = Strnew_charp("w3m");
-
-    return JS_NewStringLen(ctx, state->appcodename->ptr, state->appcodename->length);
+    if ((p = strchr(name, '/'))) {
+	return JS_NewStringLen(ctx, name, p - name);
+    } else {
+	return JS_NewString(ctx, name);
+    }
 }
 
 static JSValue
 navigator_appname_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
-
-    if (! state->appname)
-	state->appname = Strnew_charp("w3m");
-
-    return JS_NewStringLen(ctx, state->appname->ptr, state->appname->length);
+    if (strncasecmp(user_agent(), "Mozilla", 7) == 0) {
+	return JS_NewString(ctx, "Netscape");
+    } else {
+	return JS_NewString(ctx, "w3m");
+    }
 }
 
 static JSValue
 navigator_appversion_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
+    char *ua = user_agent();
+    char *version;
+    struct utsname unamebuf;
 #if LANG == JA
     const char *lang = "ja-JP";
 #else
     const char *lang = "en-US";
 #endif
     char *platform;
-    struct utsname unamebuf;
-    char *p;
     int n;
 
-    if (! state->appversion) {
-	if (uname(&unamebuf) == -1) {
-	    platform = "Unknown";
-	} else {
-	    platform = unamebuf.sysname;
-	}
-	p = strchr(w3m_version, '/');
-	if (p != NULL) {
-	    p++;
-	    n = strspn(p, "0123456789.");
-	    if (n > 0) {
-		Str rnum = Strnew();
-		Strcopy_charp_n(rnum, p, n);
-		state->appversion = Sprintf("%s (%s; %s)", rnum->ptr, platform, lang);
-		Strfree(rnum);
-	    }
+    if ((version = strchr(ua, '/'))) {
+	version++;
+	if (*version) {
+	    goto end;
 	}
     }
 
-    return JS_NewStringLen(ctx, state->appversion->ptr, state->appversion->length);
+    if (uname(&unamebuf) == -1) {
+	platform = "Unknown";
+    } else {
+	platform = unamebuf.sysname;
+    }
+
+    if (version && (n = strspn(version, "0123456789.")) > 0) {
+	Str rnum = Strnew();
+	Strcopy_charp_n(rnum, version, n);
+	version = Sprintf("%s (%s; %s)", rnum->ptr, platform, lang)->ptr;
+	Strfree(rnum);
+    } else {
+	version = Sprintf("(%s; %s)", platform, lang)->ptr;
+    }
+
+ end:
+    return JS_NewString(ctx, version);
 }
 
 static JSValue
@@ -2372,7 +2372,11 @@ navigator_language_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 navigator_vendor_get(JSContext *ctx, JSValueConst jsThis)
 {
-    return JS_NewStringLen(ctx, "w3m", 3);
+    if (strncasecmp(user_agent(), "Mozilla", 7) == 0) {
+	return JS_NewString(ctx, "Google Inc,");
+    } else {
+	return JS_NewString(ctx, "w3m");
+    }
 }
 
 static JSValue
@@ -2384,16 +2388,7 @@ navigator_online_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 navigator_useragent_get(JSContext *ctx, JSValueConst jsThis)
 {
-    NavigatorState *state = JS_GetOpaque(jsThis, NavigatorClassID);
-
-    if (! state->useragent) {
-	if (UserAgent == NULL || *UserAgent == '\0')
-	    state->useragent = Strnew_charp(w3m_version);
-	else
-	    state->useragent = Strnew_charp(UserAgent);
-    }
-
-    return JS_NewStringLen(ctx, state->useragent->ptr, state->useragent->length);
+    return JS_NewString(ctx, user_agent());
 }
 
 static JSValue
@@ -2571,7 +2566,7 @@ static JSValue
 document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc >= 1 && JS_ToBool(ctx, argv[0])) {
-	char script[] =
+	const char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), this);"
 	    "  w3m_initDocumentTree(doc);"
@@ -2582,7 +2577,7 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 			 JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1,
 				     "<input>", EVAL_FLAG));
     } else {
-	char script[] =
+	const char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), this);"
 	    "  w3m_initDocumentTree(doc);"
@@ -2835,8 +2830,8 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     Str str;
     JSValue response;
     char *ctype;
-    char *beg_events[] = { "loadstart", "onloadstart" };
-    char *end_events[] = { "progress", "load", "onload", "loadend", "onloadend", "onreadystatechange" };
+    const char *beg_events[] = { "loadstart", "onloadstart" };
+    const char *end_events[] = { "progress", "load", "onload", "loadend", "onloadend", "onreadystatechange" };
     int i;
     FormList *request = NULL;
     int orig_ct;
@@ -3076,7 +3071,7 @@ js_html_init(Buffer *buf)
     int i;
     WindowState *state;
     JSValue console;
-    char script[] =
+    const char script[] =
 	"var tostring = Object.prototype.toString;"
 	"Object.prototype.toString = function() {"
 	"  if (this == window) {"
@@ -3382,7 +3377,7 @@ js_html_init(Buffer *buf)
 	"    w3m_cloneNode(element, src.childNodes[i]);"
 	"  }"
 	"}";
-    char script2[] =
+    const char script2[] =
 	"class URL extends Location {"
 	"  /* XXX */"
 	"  static createObjectURL(object) { return \"blob:null/0\"; }"
@@ -3544,7 +3539,7 @@ js_eval2(JSContext *ctx, char *script) {
     /* for facebook.com */
     char *beg = script;
     char *p;
-    char seq[] = "if(g&&b){var c=b.childNodes;";
+    const char seq[] = "if(g&&b){var c=b.childNodes;";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
