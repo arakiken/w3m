@@ -2479,6 +2479,11 @@ sleep_till_anykey(int sec, int purge)
 	printf("Error occurred: errno=%d\n", errno);
 	reset_error_exit(SIGNAL_ARGLIST);
     }
+
+#ifdef USE_SCRIPT
+    trigger_interval(sec);
+#endif
+
     return ret;
 }
 

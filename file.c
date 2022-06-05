@@ -1835,7 +1835,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    script_eval(Currentbuf, "JavaScript",
 			wc_Str_conv(Str_url_unquote(Strnew_charp(pu.file), FALSE, FALSE),
 				    Currentbuf->document_charset, WC_CES_UTF_8)->ptr,
-			-1, 1, NULL, &output);
+			-1, 1, 0, NULL, &output);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
 	    if (output) {
@@ -4467,7 +4467,12 @@ remove_cr_nl(char *str)
     }
 
     do {
-	if (*p1 == '\"') {
+	if (*p1 == '/' && *(p1 + 1) == '/') {
+	    is_dq = is_q = 0;
+	    while (*p1 != '\r' && *p1 != '\n') {
+		*(p2++) = *(p1++);
+	    }
+	} else if (*p1 == '\"') {
 	    if (*(p1 - 1) != '\\') {
 		if (is_dq) {
 		    is_dq = 0;
@@ -4528,7 +4533,7 @@ get_script_str(Script *script, ParsedURL *baseURL)
 }
 
 static Str
-eval_script_intern(Buffer *buf, int buf2js)
+eval_script_intern(Buffer *buf, int buf2js, int onload)
 {
     GeneralList *scripts = buf->scripts;
     Str ret = NULL;
@@ -4560,7 +4565,8 @@ eval_script_intern(Buffer *buf, int buf2js)
 	    buf->script_target = script->target;
 	}
 	tmp = NULL;
-	script_eval(buf, script->lang, p, buf2js, l->next == NULL ? 1 : 0, NULL, &tmp);
+	script_eval(buf, script->lang, p, buf2js, l->next == NULL ? 1 : 0,
+		    (onload && l->next == NULL) ? 1 : 0, NULL, &tmp);
 	buf2js = 0;
 	if (script->target) {
 	    buf->script_target = orig_target;
@@ -4598,7 +4604,7 @@ process_n_script(struct html_feed_environ *h_env)
 	buf->scripts = h_env->scripts;
 	buf->sourcefile = h_env->sourcefile;
 	buf->document_charset = h_env->document_charset;
-	ret = eval_script_intern(buf, 1);
+	ret = eval_script_intern(buf, 1, 0);
 	h_env->scripts = NULL;
     }
     return ret;
@@ -4652,7 +4658,7 @@ process_html_str(Buffer *buf, char *html_str)
 	/* see eval_script() */
 	Str ret;
 	buf->scripts = htmlenv1.scripts;
-	ret = eval_script_intern(buf, 0);
+	ret = eval_script_intern(buf, 0, 0);
 	buf->scripts = NULL;
 	if (ret) {
 	    process_html_str(buf, ret->ptr);
@@ -4664,7 +4670,7 @@ static void
 eval_script(Buffer *buf)
 {
     if (buf->scripts != NULL && buf->need_reshape == FALSE) {
-	Str ret = eval_script_intern(buf, 1);
+	Str ret = eval_script_intern(buf, 1, 1);
 	buf->scripts = NULL;
 	if (ret) {
 	    process_html_str(buf, ret->ptr);

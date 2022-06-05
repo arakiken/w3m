@@ -522,6 +522,13 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return element;"
 		"};"
 		""
+		"document.createAttribute = function(name) {"
+		"  let attr = new Object();"
+		"  attr.name = attr.localName = name;"
+		"  attr.specified = true;"
+		"  return attr;"
+		"};"
+		""
 		"function w3m_getElementById(element, id) {"
 		"  for (let i = 0; i < element.children.length; i++) {"
 		"    if (element.children[i].id === id) {"
@@ -761,6 +768,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"};"
 		""
 		"document.createEvent = function() {"
+		"  console.log(\"XXX: Document.createEvent\");"
 		"  return new Object();"
 		"};"
 		""
@@ -771,29 +779,34 @@ script_buf2js(Buffer *buf, void *interp)
 		"  return r;"
 		"};"
 		""
+		"document.createNodeIterator = function(root, ...args) {"
+		"  return new NodeIterator(root, args[0], args[1]);"
+		"};"
+		""
 		"window.requestAnimationFrame = function(callback) {"
+		"  console.log(\"XXX: Window.requestAnimationFrame\");"
 		"  return null;"
 		"};"
 		""
 		"window.cancelAnimationFrame = function(callback) {"
+		"  console.log(\"XXX: Window.cancelAnimationFrame\");"
 		"  return null;"
 		"};"
 		""
-		"var w3m_intervalID = 1;"
-		"window.setInterval = window.setTimeout = function(fn, tm) {"
-		"  if (typeof fn == \"string\") {"
-		"    document.addEventListener(\"DOMContentLoaded\", new Function(fn));"
-		"  } else if (typeof fn == \"function\") {"
-		"    document.addEventListener(\"DOMContentLoaded\", fn);"
+		"window.postMessage = function(message, origin) {"
+		"  for (let i = 0; i < this.w3m_events.length; i++) {"
+		"    if (this.w3m_events[i].type === \"message\") {"
+		"      this.w3m_events[i].origin = origin;"
+		"      this.w3m_events[i].data = message;"
+		"      if (typeof this.w3m_events[i].listener === \"function\") {"
+		"        this.w3m_events[i].listener(this.w3m_events[i]);"
+		"      } else if (this.w3m_events[i].listener.handleEvent === \"function\") {"
+		"        this.w3m_events[i].listener.handleEvent(this.w3m_events[i]);"
+		"      }"
+		"      break;"
+		"    }"
 		"  }"
-		"  return w3m_intervalID++;"
 		"};"
-		""
-		"window.clearInterval = window.clearTimeout = function(id) { ; };"
-		""
-		"window.postMessage = function(message, origin) { ; };"
-		""
-		"window.getSelection = function() { return \"\"; };"
 		""
 		"performance.now = function() {"
 		"  /* performance.now() should return DOMHighResTimeStamp */"
@@ -934,48 +947,48 @@ script_buf2js(Buffer *buf, void *interp)
 		"          obj.w3m_events[i].type === \"loadend\" ||"
 		"          obj.w3m_events[i].type === \"DOMContentLoaded\" ||"
 		"          obj.w3m_events[i].type === \"visibilitychange\") {"
-		"        if (typeof obj.w3m_events[i].listener == \"function\") {"
+		"        if (typeof obj.w3m_events[i].listener === \"function\") {"
 		"          obj.w3m_events[i].listener(obj.w3m_events[i]);"
 		"        } else if (obj.w3m_events[i].listener.handleEvent &&"
-		"                   typeof obj.w3m_events[i].listener.handleEvent == \"function\") {"
+		"                   typeof obj.w3m_events[i].listener.handleEvent === \"function\") {"
 		"          obj.w3m_events[i].listener.handleEvent(obj.w3m_events[i]);"
 		"        }"
 		"        obj.w3m_events.splice(i, 1);"
 		"      }"
 		"    }"
 		"  }"
-		"  if (obj.onloadstart != undefined) {"
-		"    if (typeof obj.onloadstart == \"string\") {"
+		"  if (obj.onloadstart) {"
+		"    if (typeof obj.onloadstart === \"string\") {"
 		"      try {"
 		"        eval(obj.onloadstart);"
 		"      } catch (e) {"
 		"        console.log(e.message);"
 		"      }"
-		"    } else {"
+		"    } else if (typeof obj.onloadstart === \"function\") {"
 		"      obj.onloadstart();"
 		"    }"
 		"    obj.onloadstart = undefined;"
 		"  }"
-		"  if (obj.onload != undefined) {"
-		"    if (typeof obj.onload == \"string\") {"
+		"  if (obj.onload) {"
+		"    if (typeof obj.onload === \"string\") {"
 		"      try {"
 		"        eval(obj.onload);"
-		"      } catch (e) {"
-		"        console.log(e.message);"
+		"      } catch (o) {"
+		"        console.log(o.message);"
 		"      }"
-		"    } else {"
+		"    } else if (typeof obj.onload === \"function\") {"
 		"      obj.onload();"
 		"    }"
 		"    obj.onload = undefined;"
 		"  }"
-		"  if (obj.onloadend != undefined) {"
-		"    if (typeof obj.onloadend == \"string\") {"
+		"  if (obj.onloadend) {"
+		"    if (typeof obj.onloadend === \"string\") {"
 		"      try {"
 		"        eval(obj.onloadend);"
 		"      } catch (e) {"
 		"        console.log(e.message);"
 		"      }"
-		"    } else {"
+		"    } else if (typeof obj.onloadend === \"function\") {"
 		"      obj.onloadend();"
 		"    }"
 		"    obj.onloadend = undefined;"
@@ -1159,7 +1172,7 @@ get_form_element_event(void *interp, int i, int j, const char *type)
 		"      break;"
 		"    }"
 		"  }"
-		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"  if (typeof listener === \"object\" && listener.handleEvent) {"
 		"    listener.handleEvent;"
 		"  } else {"
 		"    listener;"
@@ -1184,7 +1197,7 @@ get_form_event(void *interp, int i, const char *type)
 		"      break;"
 		"    }"
 		"  }"
-		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"  if (typeof listener === \"object\" && listener.handleEvent) {"
 		"    listener.handleEvent;"
 		"  } else {"
 		"    listener;"
@@ -1210,7 +1223,7 @@ get_document_event(void *interp, const char *type)
 		"      break;"
 		"    }"
 		"  }"
-		"  if (typeof listener == \"object\" && listener.handleEvent) {"
+		"  if (typeof listener === \"object\" && listener.handleEvent) {"
 		"    listener.handleEvent;"
 		"  } else {"
 		"    listener;"
@@ -1740,6 +1753,7 @@ script_js2buf(Buffer *buf, void *interp)
 	    }
 	    state->open = 0;
 	} else if (state->write) {
+	    js_insert_dom_tree(interp, state->write->ptr);
 	    ret = u2is(state->write);
 	    state->write = NULL;
 	}
@@ -1750,7 +1764,7 @@ script_js2buf(Buffer *buf, void *interp)
 }
 
 static void
-onload(void *interp)
+onload_event(void *interp)
 {
     js_eval(interp,
 	    "w3m_element_onload(document);"
@@ -1758,7 +1772,8 @@ onload(void *interp)
 }
 
 static int
-script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, Str *output)
+script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
+	       FormList *fl, Str *output)
 {
     void *interp;
     int formidx = -1;
@@ -1780,7 +1795,7 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, 
 	if (buf2js > 0) {
 	    js_reset_functions(interp);
 	    script_buf2js(buf, interp);
-	    create_dom_tree(interp, buf->sourcefile, wc_ces_to_charset(buf->document_charset));
+	    js_create_dom_tree(interp, buf->sourcefile, wc_ces_to_charset(buf->document_charset));
 	} else {
 	    update_forms(buf, interp);
 	}
@@ -1814,7 +1829,10 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, 
 	 */
 	ret = js_eval2_this(interp, formidx, script);
     }
-    onload(interp);
+
+    if (onload) {
+	onload_event(interp);
+    }
 
     if (js2buf) {
 	Str str = script_js2buf(buf, interp);
@@ -1841,8 +1859,8 @@ script_js_close(Buffer *buf)
 #endif
 
 int
-script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, FormList *fl,
-	    Str *output)
+script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int onload,
+	    FormList *fl, Str *output)
 {
     if (buf == NULL) {
 	return 0;
@@ -1861,7 +1879,7 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, FormL
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
 	! strcasecmp(lang, "jscript"))
-	return script_js_eval(buf, script, buf2js, js2buf, fl, output);
+	return script_js_eval(buf, script, buf2js, js2buf, onload, fl, output);
     else
 #endif
 	return 0;
