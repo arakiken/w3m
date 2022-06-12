@@ -30,6 +30,7 @@
 #define MAX_INPUT_SIZE 80 /* TODO - max should be screen line length */
 
 static int frame_source = 0;
+static int need_number = 0;
 
 static char *guess_filename(char *file);
 static int _MoveFile(char *path1, char *path2);
@@ -639,7 +640,7 @@ readHeader(URLFile *uf, Buffer *newBuf, int thru, ParsedURL *pu)
 	if (src)
 	    newBuf->header_source = tmpf;
     }
-    while ((tmp = StrmyUFgets(uf))->length) {
+    while ((tmp = StrmyUFgets(uf)) && tmp->length) {
 #ifdef USE_NNTP
 	if (uf->scheme == SCM_NEWS && tmp->ptr[0] == '.')
 	    Strshrinkfirst(tmp, 1);
@@ -1412,16 +1413,15 @@ AuthDigestCred(struct http_auth *ha, Str uname, Str pw, ParsedURL *pu,
      */
 
     tmp = Strnew_m_charp("Digest username=\"", uname->ptr, "\"", NULL);
-    Strcat_m_charp(tmp, ", realm=",
-		   get_auth_param(ha->param, "realm")->ptr, NULL);
-    Strcat_m_charp(tmp, ", nonce=",
-		   get_auth_param(ha->param, "nonce")->ptr, NULL);
+    if ((s = get_auth_param(ha->param, "realm")) != NULL)
+	Strcat_m_charp(tmp, ", realm=", s->ptr, NULL);
+    if ((s = get_auth_param(ha->param, "nonce")) != NULL)
+	Strcat_m_charp(tmp, ", nonce=", s->ptr, NULL);
     Strcat_m_charp(tmp, ", uri=\"", uri->ptr, "\"", NULL);
     Strcat_m_charp(tmp, ", response=\"", rd->ptr, "\"", NULL);
 
-    if (algorithm)
-	Strcat_m_charp(tmp, ", algorithm=",
-		       get_auth_param(ha->param, "algorithm")->ptr, NULL);
+    if (algorithm && (s = get_auth_param(ha->param, "algorithm")))
+	Strcat_m_charp(tmp, ", algorithm=", s->ptr, NULL);
 
     if (cnonce)
 	Strcat_m_charp(tmp, ", cnonce=\"", cnonce->ptr, "\"", NULL);
@@ -3159,11 +3159,14 @@ purgeline(struct html_feed_environ *h_env)
 {
     char *p, *q;
     Str tmp;
+    TextLine *tl;
 
     if (h_env->buf == NULL || h_env->blank_lines == 0)
 	return;
 
-    p = rpopTextLine(h_env->buf)->line->ptr;
+    if (!(tl = rpopTextLine(h_env->buf)))
+	return;
+    p = tl->line->ptr;
     tmp = Strnew();
     while (*p) {
 	q = p;
@@ -5582,8 +5585,6 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	    obuf->anchor.hseq = cur_hseq;
 	    tmp = process_anchor(tag, h_env->tagbuf->ptr);
 	    push_tag(obuf, tmp->ptr, HTML_A);
-	    if (displayLinkNumber)
-		HTMLlineproc1(getLinkNumberStr(-1)->ptr, h_env);
 	    return 1;
 	}
 	return 0;
@@ -5594,6 +5595,10 @@ HTMLtagproc1(struct parsed_tag *tag, struct html_feed_environ *h_env)
 	if (parsedtag_exists(tag, ATTR_USEMAP))
 	    HTML5_CLOSE_A;
 	tmp = process_img(tag, h_env->limit);
+	if (need_number) {
+	    tmp = Strnew_m_charp(getLinkNumberStr(-1)->ptr, tmp->ptr, NULL);
+	    need_number = 0;
+	}
 	HTMLlineproc1(tmp->ptr, h_env);
 	return 1;
     case HTML_IMG_ALT:
@@ -6897,7 +6902,7 @@ file_feed()
 {
     Str s;
     s = StrISgets(_file_lp2);
-    if (s->length == 0) {
+    if (s && s->length == 0) {
 	ISclose(_file_lp2);
 	return NULL;
     }
@@ -7060,6 +7065,10 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 	    if (obuf->status != R_ST_NORMAL)	/* R_ST_AMP ? */
 		obuf->status = R_ST_NORMAL;
 	    str = tokbuf->ptr;
+	    if (need_number) {
+		str = Strnew_m_charp(getLinkNumberStr(-1)->ptr, str, NULL)->ptr;
+		need_number = 0;
+	    }
 	}
 
 	if (pre_mode & (RB_PLAIN | RB_INTXTA | RB_INSELECT | RB_SCRIPT |
@@ -7216,8 +7225,12 @@ HTMLlineproc0(char *line, struct html_feed_environ *h_env, int internal)
 	    clear_ignore_p_flag(cmd, obuf);
 	    if (cmd == HTML_TABLE)
 		goto table_start;
-	    else
+	    else {
+		if (displayLinkNumber && cmd == HTML_A && !internal)
+		    if (h_env->obuf->anchor.url)
+			need_number = 1;
 		continue;
+	    }
 	}
 
 	if (obuf->flag & (RB_DEL | RB_S))
@@ -7960,7 +7973,7 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 #endif
     if (IStype(f->stream) != IST_ENCODED)
 	f->stream = newEncodedStream(f->stream, f->encoding);
-    while ((lineBuf2 = StrmyUFgets(f))->length) {
+    while ((lineBuf2 = StrmyUFgets(f)) && lineBuf2->length) {
 #ifdef USE_NNTP
 	if (f->scheme == SCM_NEWS && lineBuf2->ptr[0] == '.') {
 	    Strshrinkfirst(lineBuf2, 1);
@@ -8127,7 +8140,7 @@ loadGopherDir0(URLFile *uf, ParsedURL *pu)
 
     pre = 0;
     while (1) {
-	if (lbuf = StrUFgets(uf), lbuf->length == 0)
+	if (!(lbuf = StrUFgets(uf)) || lbuf->length == 0)
 	    break;
 	if (lbuf->ptr[0] == '.' &&
 	    (lbuf->ptr[1] == '\n' || lbuf->ptr[1] == '\r'))
@@ -8297,7 +8310,7 @@ loadBuffer(URLFile *uf, Buffer *volatile newBuf)
     nlines = 0;
     if (IStype(uf->stream) != IST_ENCODED)
 	uf->stream = newEncodedStream(uf->stream, uf->encoding);
-    while ((lineBuf2 = StrmyISgets(uf->stream))->length) {
+    while ((lineBuf2 = StrmyISgets(uf->stream)) && lineBuf2->length) {
 #ifdef USE_NNTP
 	if (uf->scheme == SCM_NEWS && lineBuf2->ptr[0] == '.') {
 	    Strshrinkfirst(lineBuf2, 1);
@@ -8726,7 +8739,8 @@ getNextPage(Buffer *buf, int plen)
 
     init_stream(&uf, SCM_UNKNOWN, NULL);
     for (i = 0; i < plen; i++) {
-	lineBuf2 = StrmyISgets(buf->pagerSource);
+	if (!(lineBuf2 = StrmyISgets(buf->pagerSource)))
+	    return NULL;
 	if (lineBuf2->length == 0) {
 	    /* Assume that `cmd == buf->filename' */
 	    if (buf->filename)
@@ -8775,7 +8789,8 @@ getNextPage(Buffer *buf, int plen)
 		l = l->next;
 	    } while (l && l->bpos);
 	    buf->firstLine = l;
-	    buf->firstLine->prev = NULL;
+	    if (l)
+		buf->firstLine->prev = NULL;
 	}
     }
   pager_end:

@@ -1082,6 +1082,10 @@ main(int argc, char **argv)
 	    newbuf->search_header = search_header;
 	if (CurrentTab == NULL) {
 	    FirstTab = LastTab = CurrentTab = newTab();
+	    if (!FirstTab) {
+		fprintf(stderr, "%s\n","Can't allocated memory");
+		exit(1);
+	    }
 	    nTab = 1;
 	    Firstbuf = Currentbuf = newbuf;
 	}
@@ -1456,7 +1460,8 @@ escKeyProc(int c, int esc, unsigned char *map)
 	esc |= (CurrentKey & ~0xFFFF);
     }
     CurrentKey = esc | c;
-    w3mFuncList[(int)map[c]].func();
+    if (map)
+        w3mFuncList[(int)map[c]].func();
 }
 
 DEFUN(escmap, ESCMAP, "ESC map")
@@ -6621,8 +6626,8 @@ followTab(TabBuffer * tab)
 	Buffer *c, *p;
 
 	c = Currentbuf;
-	p = prevBuffer(c, buf);
-	p->nextBuffer = NULL;
+	if ((p = prevBuffer(c, buf)))
+	    p->nextBuffer = NULL;
 	Firstbuf = buf;
 	deleteTab(CurrentTab);
 	CurrentTab = tab;
@@ -6662,8 +6667,8 @@ tabURL0(TabBuffer * tab, char *prompt, int relative)
 	Buffer *c, *p;
 
 	c = Currentbuf;
-	p = prevBuffer(c, buf);
-	p->nextBuffer = NULL;
+	if ((p = prevBuffer(c, buf)))
+	    p->nextBuffer = NULL;
 	Firstbuf = buf;
 	deleteTab(CurrentTab);
 	CurrentTab = tab;
