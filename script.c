@@ -1769,6 +1769,7 @@ onload_event(void *interp)
     js_eval(interp,
 	    "w3m_element_onload(document);"
 	    "w3m_onload(window);");
+    trigger_interval(1);
 }
 
 static int

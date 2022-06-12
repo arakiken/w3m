@@ -3109,6 +3109,11 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	return JS_EXCEPTION;
     }
 
+    if (!JS_IsFunction(ctx, argv[0])) {
+	log_msg("setInterval: not a function");
+	return JS_UNDEFINED;
+    }
+
     for (i = 0; i < num_interval_callbacks; i++) {
 	if (interval_callbacks[i].ctx == NULL) {
 	    idx = i;
@@ -3141,10 +3146,12 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	    interval_callbacks[idx].argc = argc - 2;
 	} else {
 	    interval_callbacks[idx].argc = 0;
+	    interval_callbacks[idx].argv = NULL;
 	}
     } else {
 	interval_callbacks[idx].cur_delay = 1000;
 	interval_callbacks[idx].argc = 0;
+	interval_callbacks[idx].argv = NULL;
     }
 
     if (is_timeout) {
@@ -3153,7 +3160,7 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	interval_callbacks[idx].delay = interval_callbacks[idx].cur_delay;
     }
 
-    return JS_NewInt32(ctx, idx);
+    return JS_NewInt32(ctx, idx + 1);
 }
 
 static JSValue
@@ -3191,7 +3198,9 @@ clear_interval(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     }
 
     JS_ToInt32(ctx, &idx, argv[0]);
-    if (idx < num_interval_callbacks && interval_callbacks[idx].ctx != NULL) {
+    idx --;
+
+    if (0 <= idx && idx < num_interval_callbacks && interval_callbacks[idx].ctx != NULL) {
 	destroy_interval_callback(interval_callbacks + idx);
     }
 
@@ -3202,24 +3211,31 @@ void trigger_interval(int sec)
 {
     int i;
     int msec;
+    int num = num_interval_callbacks;
 
     msec = sec * 1000;
-    for (i = 0; i < num_interval_callbacks; i++) {
+    for (i = 0; i < num; i++) {
 	if (interval_callbacks[i].ctx != NULL) {
 	    if (interval_callbacks[i].cur_delay > msec) {
 		interval_callbacks[i].cur_delay -= msec;
 	    } else {
-		JS_FreeValue(interval_callbacks[i].ctx,
-			     JS_Call(interval_callbacks[i].ctx,
-				     interval_callbacks[i].func,
-				     JS_NULL, interval_callbacks[i].argc,
-				     interval_callbacks[i].argv));
-		if (interval_callbacks[i].delay > 0) {
-		    /* interval */
-		    interval_callbacks[i].cur_delay = interval_callbacks[i].delay;
+		JSValue val = JS_Call(interval_callbacks[i].ctx,
+				      interval_callbacks[i].func,
+				      JS_NULL, interval_callbacks[i].argc,
+				      interval_callbacks[i].argv);
+
+		/* interval_callbacks[i] can be destroyed in JS_Call() above. */
+		if (interval_callbacks[i].ctx != NULL) {
+		    JS_FreeValue(interval_callbacks[i].ctx, val);
+		    if (interval_callbacks[i].delay > 0) {
+			/* interval */
+			interval_callbacks[i].cur_delay = interval_callbacks[i].delay;
+		    } else {
+			/* timeout */
+			destroy_interval_callback(interval_callbacks + i);
+		    }
 		} else {
-		    /* timeout */
-		    destroy_interval_callback(interval_callbacks + i);
+		    /* XXX val is leaked */
 		}
 	    }
 	}
@@ -3837,6 +3853,7 @@ js_eval2(JSContext *ctx, char *script) {
     Strcat_charp(str, beg);
     script = str->ptr;
 #elif 0
+    /* for acid tests */
     char *beg = script;
     char *p;
     const char seq[] = "setTimeout(update, delay);";
