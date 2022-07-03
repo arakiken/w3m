@@ -2442,6 +2442,14 @@ navigator_cookieenabled_get(JSContext *ctx, JSValueConst jsThis)
     }
 }
 
+static JSValue
+navigator_send_beacon(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_msg("XXX: Navigator.sendBeacon");
+
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("appCodeName", navigator_appcodename_get, NULL),
     JS_CGETSET_DEF("appName", navigator_appname_get, NULL),
@@ -2451,6 +2459,7 @@ static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("language", navigator_language_get, NULL),
     JS_CGETSET_DEF("vendor", navigator_vendor_get, NULL),
     JS_CGETSET_DEF("onLine", navigator_online_get, NULL),
+    JS_CFUNC_DEF("sendBeacon", 1, navigator_send_beacon),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Navigator", JS_PROP_CONFIGURABLE),
 };
@@ -3836,6 +3845,18 @@ js_eval2(JSContext *ctx, char *script) {
 	    Strcat_charp(str, "\n");
 	}
         beg = p + 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    char *beg = script;
+    char *p;
+    const char seq[] = "var returnNodesAry=rangeNode.getElementsByTagName(aTagName);";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(returnNodesAry);");
+        beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
