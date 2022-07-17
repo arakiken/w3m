@@ -1120,8 +1120,10 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
     if (strcasecmp(str, "#text") == 0) {
 	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
+	JS_SetPropertyStr(ctx, obj, "data", JS_NewString(ctx, "")); /* XXX CharacterData.data */
     } else if (strcasecmp(str, "#comment") == 0) {
 	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 8)); /* COMMENT_NODE */
+	JS_SetPropertyStr(ctx, obj, "data", JS_NewString(ctx, "")); /* XXX CharacterData.data */
     } else {
 	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 1)); /* ELEMENT_NODE */
     }
@@ -1162,6 +1164,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, style, "getPropertyValue",
 		      JS_NewCFunction(ctx, style_get_property_value, "getPropertyValue", 1));
     JS_SetPropertyStr(ctx, style, "whiteSpace", JS_NewString(ctx, "normal"));
+    JS_SetPropertyStr(ctx, style, "zIndex", JS_NewInt32(ctx, 0));
     JS_SetPropertyStr(ctx, obj, "style", style);
 
     JS_SetPropertyStr(ctx, obj, "offsetWidth", JS_NewInt32(ctx, term_ppc));
@@ -3513,6 +3516,12 @@ js_html_init(Buffer *buf)
 	"  get collapsed() {"
 	"    return true;"
 	"  }"
+	"  selectNode(node) {"
+	"    console.log(\"XXX: Range.selectNode\");"
+	"  }"
+	"  selectNodeContents(node) {"
+	"    console.log(\"XXX: Range.selectNodeContents\");"
+	"  }"
 	"};"
 	""
 	"/* Element.attributes */"
@@ -4085,6 +4094,57 @@ push_node_to(JSContext *ctx, JSValue node, char *array_name)
     JS_FreeValue(ctx, array);
 }
 
+static JSValue
+find_form(JSContext *ctx, xmlNode *node)
+{
+#ifndef USE_LIBXML2
+    xmlAttr *attr;
+
+    for (attr = node->properties; attr != NULL; attr = attr->next) {
+	xmlNode *n;
+	if (strcasecmp((char*)attr->name, "id") == 0) {
+	    n = attr->children;
+	    if (n && n->type == XML_TEXT_NODE) {
+		char *script =
+		    Sprintf("{"
+			    "  let form = null;"
+			    "  for (let i = 0; i < document.forms.length; i++) {"
+			    "    form = w3m_getElementById(document.forms[i], \"%s\");"
+			    "    if (form) {"
+			    "      break;"
+			    "    }"
+			    "  }"
+			    "  form;"
+			    "}", (char*)n->content)->ptr;
+		return JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+	    }
+	} else if (strcasecmp((char*)attr->name, "name") == 0) {
+	    n = attr->children;
+	    if (n && n->type == XML_TEXT_NODE) {
+		char *script =
+		    Sprintf("{"
+			    "  let ret = new Array();"
+			    "  for (let i = 0; i < document.forms.length; i++) {"
+			    "    w3m_getElementsByName(document.forms[i], \"%s\", ret);"
+			    "    if (ret.length > 0) {"
+			    "      break;"
+			    "    }"
+			    "  }"
+			    "  if (ret.length > 0) {"
+			    "    ret[0];"
+			    "  } else {"
+			    "    null;"
+			    "  }"
+			    "}", (char*)n->content)->ptr;
+		return JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+	    }
+	}
+    }
+#endif
+
+    return JS_NULL;
+}
+
 static void
 create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 {
@@ -4105,8 +4165,10 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		 strcasecmp((char*)node->name, "INPUT") == 0 ||
 		 strcasecmp((char*)node->name, "TEXTAREA") == 0 ||
 		 strcasecmp((char*)node->name, "BUTTON") == 0)) {
-		jsnode = JS_DupValue(ctx, jsparent); /* XXX should be document.forms[n] etc */
-		goto child_tree;
+		jsnode = find_form(ctx, node);
+		if (!JS_IsNull(jsnode)) {
+		    goto child_tree;
+		}
 	    }
 
 #ifdef DOM_DEBUG
@@ -4173,9 +4235,20 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    fprintf(fp, "text %s\n", node->content);
 #endif
 	    JS_SetPropertyStr(ctx, jsnode, "nodeValue", JS_NewString(ctx, (char*)node->content));
+	    JS_SetPropertyStr(ctx, jsnode, "data", JS_NewString(ctx, (char*)node->content));
 	    if (innerhtml) {
 		JS_SetPropertyStr(ctx, jsnode, "isModified", JS_TRUE);
 	    }
+	} else if (node->type == XML_COMMENT_NODE) {
+	    JSValue arg = JS_NewString(ctx, "#comment");
+	    jsnode = html_element_new(ctx, jsparent, 1, &arg);
+	    JS_FreeValue(ctx, arg);
+
+#ifdef DOM_DEBUG
+	    fprintf(fp, "text %s\n", node->content);
+#endif
+	    JS_SetPropertyStr(ctx, jsnode, "nodeValue", JS_NewString(ctx, (char*)node->content));
+	    JS_SetPropertyStr(ctx, jsnode, "data", JS_NewString(ctx, (char*)node->content));
 	} else {
 #ifdef DOM_DEBUG
 	    fprintf(fp, "element %d\n", node->type);
@@ -4304,8 +4377,6 @@ js_insert_dom_tree(JSContext *ctx, const char *html)
     JS_FreeValue(ctx, parent);
 }
 
-#endif /* LIBXML_TREE_ENABLED */
-
 #else
 
 int
@@ -4313,5 +4384,7 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset) { return
 
 void
 js_insert_dom_tree(JSContext *ctx, const char *html) { ; }
+
+#endif /* LIBXML_TREE_ENABLED */
 
 #endif
