@@ -2772,9 +2772,9 @@ xml_http_request_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     str = JS_ToCString(ctx, argv[0]);
     if (str == NULL) {
 	goto error;
-    } else if (strcmp(str, "GET") == 0) {
+    } else if (strcasecmp(str, "GET") == 0) {
 	state->method = FORM_METHOD_GET;
-    } else if (strcmp(str, "POST") == 0) {
+    } else if (strcasecmp(str, "POST") == 0) {
 	state->method = FORM_METHOD_POST;
     } else {
 	goto error;
@@ -2795,6 +2795,7 @@ xml_http_request_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     return JS_UNDEFINED;
 
 error:
+    log_msg("XMLHttpRequest: Unknown method");
     JS_FreeCString(ctx, str);
     return JS_EXCEPTION;
 }
@@ -3062,6 +3063,7 @@ xml_http_request_get_response_header(JSContext *ctx, JSValueConst jsThis, int ar
 	    size_t len = strlen(name);
 	    if (strncasecmp(i->ptr, name, len) == 0) {
 		value = i->ptr + len;
+		if (*value == ':') value++;
 		while (*value == ' ' || *value == '\t') value++;
 		break;
 	    }
@@ -3521,6 +3523,9 @@ js_html_init(Buffer *buf)
 	"  }"
 	"  selectNodeContents(node) {"
 	"    console.log(\"XXX: Range.selectNodeContents\");"
+	"  }"
+	"  surroundContents(newParent) {"
+	"    console.log(\"XXX: Range.surroundContents\");"
 	"  }"
 	"};"
 	""
@@ -4183,6 +4188,10 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		push_node_to(ctx, jsnode, "document.images;");
 	    } else if (strcasecmp((char*)node->name, "CANVAS") == 0) {
 		jsnode = html_canvas_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "FORM") == 0) {
+		jsnode = html_form_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "SELECT") == 0) {
+		jsnode = html_select_element_new(ctx, jsparent, 0, NULL);
 	    } else {
 		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);
