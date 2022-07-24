@@ -1379,16 +1379,43 @@ element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 }
 
 static JSValue
-element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv);
+
+static JSValue
+element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc,
+				      JSValueConst *argv, int append_child)
 {
     JSValue val;
     JSValue prop;
     JSValue vret;
     int32_t iret;
 
-    if (argc < 1  /*  appendChild: 1, insertBefore: 2*/) {
+    if (append_child) {
+	if (argc < 1) {
+	    return JS_EXCEPTION;
+	}
+    } else {
+	if (argc < 2) {
+	    return JS_EXCEPTION;
+	} else if (JS_IsNull(argv[1])) {
+	    append_child = 1;
+	}
+    }
+
+    val = JS_GetPropertyStr(ctx, argv[0], "parentNode");
+    if (JS_IsObject(val)) {
+	JS_FreeValue(ctx, element_remove_child(ctx, val, 1, argv));
+    }
+    JS_FreeValue(ctx, val);
+
+    val = JS_Eval(ctx, "document.documentElement;", 25, "<input>", EVAL_FLAG);
+    if (JS_VALUE_GET_PTR(val) == JS_VALUE_GET_PTR(argv[0])) {
+	JS_FreeValue(ctx, val);
+	log_msg("appendChild: HIERARCHY_REQUEST_ERR");
+
 	return JS_EXCEPTION;
     }
+    JS_FreeValue(ctx, val);
 
 #if 0
     FILE *fp = fopen("w3mlog.txt", "a");
@@ -1415,13 +1442,47 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 #endif
 
     val = JS_GetPropertyStr(ctx, jsThis, "children");
-    prop = JS_GetPropertyStr(ctx, val, "push");
-    vret = JS_Call(ctx, prop, val, 1, argv);
-    JS_FreeValue(ctx, val);
-    JS_FreeValue(ctx, prop);
+    if (append_child) {
+	prop = JS_GetPropertyStr(ctx, val, "push");
+	vret = JS_Call(ctx, prop, val, 1, argv);
+	JS_FreeValue(ctx, prop);
+	JS_FreeValue(ctx, val);
 
-    JS_ToInt32(ctx, &iret, vret);
-    JS_FreeValue(ctx, vret);
+	JS_ToInt32(ctx, &iret, vret);
+	JS_FreeValue(ctx, vret);
+
+	iret--;
+    } else {
+#if 0
+	log_msg("=== BEFORE");
+	log_msg(get_cstr(ctx, JS_GetPropertyStr(ctx, argv[0], "tagName")));
+	log_msg(get_cstr(ctx, JS_GetPropertyStr(ctx, argv[1], "tagName")));
+	JS_EvalThis(ctx, jsThis, "dump_tree(this, \"\");", 20, "<input>", EVAL_FLAG);
+#endif
+	prop = JS_GetPropertyStr(ctx, val, "indexOf");
+	vret = JS_Call(ctx, prop, val, 1, argv + 1);
+	JS_FreeValue(ctx, prop);
+	if (JS_IsNumber(vret)) {
+	    JS_ToInt32(ctx, &iret, vret);
+	    if (iret >= 0) {
+		JSValue argv2[3];
+
+		argv2[0] = vret;
+		argv2[1] = JS_NewInt32(ctx, 0);
+		argv2[2] = argv[0];
+		prop = JS_GetPropertyStr(ctx, val, "splice");
+		JS_FreeValue(ctx, JS_Call(ctx, prop, val, 3, argv2));
+		JS_FreeValue(ctx, argv2[1]);
+		JS_FreeValue(ctx, prop);
+	    }
+	}
+	JS_FreeValue(ctx, vret);
+	JS_FreeValue(ctx, val);
+#if 0
+	log_msg("=== AFTER");
+	JS_EvalThis(ctx, jsThis, "dump_tree(this, \"\");", 20, "<input>", EVAL_FLAG);
+#endif
+    }
 
 #if 0
     fp = fopen("w3mlog.txt", "a");
@@ -1430,11 +1491,28 @@ element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
     fclose(fp);
 #endif
 
-    if (iret > 0) {
+    if (iret >= 0) {
+#if 1
+	/* XXX for acid3 test 65 and 69 */
+	char *script = Sprintf("w3m_onload(this.children[%d]);", iret)->ptr;
+	JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+#endif
 	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
     } else {
 	return JS_EXCEPTION;
     }
+}
+
+static JSValue
+element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return element_append_child_or_insert_before(ctx, jsThis, argc, argv, 1);
+}
+
+static JSValue
+element_insert_before(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return element_append_child_or_insert_before(ctx, jsThis, argc, argv, 0);
 }
 
 static JSValue
@@ -2094,7 +2172,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     /* Node (see DocumentFuncs) */
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
-    JS_CFUNC_DEF("insertBefore", 1, element_append_child), /* XXX */
+    JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
     JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
     JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
@@ -2648,7 +2726,7 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     /* Node (see ElementFuncs) */
     JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
-    JS_CFUNC_DEF("insertBefore", 1, element_append_child), /* XXX */
+    JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
     JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
     JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
@@ -3686,6 +3764,18 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}";
     const char script2[] =
+#if 0
+	"function dump_tree(e, head) {"
+	"  for (let i = 0; i < e.children.length; i++) {"
+	"    console.log(head + e.children[i].tagName);"
+	"    if (e.children[i] === e.parentNode) {"
+	"      console.log(\"HIERARCHY_ERR\");"
+	"    } else {"
+	"      dump_tree(e.children[i], head + \" \");"
+	"    }"
+	"  }"
+	"}"
+#endif
 	"globalThis.URL = class URL extends Location {"
 	"  /* XXX */"
 	"  static createObjectURL(object) {"
@@ -3895,7 +3985,7 @@ js_eval2(JSContext *ctx, char *script) {
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(log)");
+	Strcat_charp(str, "console.log(log);/*dump_element(document, \"\");*/");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -4213,7 +4303,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		    value = JS_NewString(ctx, (char*)n->content);
 
 		    if (strcasecmp((char*)attr->name, "class") == 0) {
-			element_class_name_set(ctx, jsnode, value);
+			JS_FreeValue(ctx, element_class_name_set(ctx, jsnode, value));
 			JS_FreeValue(ctx, value);
 			continue;
 		    }
@@ -4265,7 +4355,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    continue;
 	}
 
-	element_append_child(ctx, jsparent, 1, &jsnode);
+	JS_FreeValue(ctx, element_append_child(ctx, jsparent, 1, &jsnode));
 
 #ifdef DOM_DEBUG
 	fclose(fp);
