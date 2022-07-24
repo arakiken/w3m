@@ -2589,6 +2589,14 @@ document_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     return JS_UNDEFINED;
 }
 
+static void
+insert_dom_tree(JSContext *ctx, const char *html)
+{
+    JSValue parent = JS_Eval(ctx, "document.head;", 14, "<input>", EVAL_FLAG);
+    create_tree_from_html(ctx, parent, html);
+    JS_FreeValue(ctx, parent);
+}
+
 static JSValue
 document_write(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
@@ -2615,6 +2623,8 @@ document_write(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 	    Strcat(state->write, Sprintf("%d", j));
 	}
     }
+
+    insert_dom_tree(ctx, state->write->ptr);
 
     return JS_UNDEFINED;
 }
@@ -3767,7 +3777,7 @@ js_html_init(Buffer *buf)
 #if 0
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName);"
+	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \")\");"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -3978,7 +3988,7 @@ js_eval2(JSContext *ctx, char *script) {
     Strcat_charp(str, beg);
     script = str->ptr;
 #elif 0
-    /* for acid tests */
+    /* for acid3 tests */
     char *beg = script;
     char *p;
     const char seq[] = "setTimeout(update, delay);";
@@ -4468,21 +4478,10 @@ error:
     }
 }
 
-void
-js_insert_dom_tree(JSContext *ctx, const char *html)
-{
-    JSValue parent = js_eval2(ctx, "document.head;");
-    create_tree_from_html(ctx, parent, html);
-    JS_FreeValue(ctx, parent);
-}
-
 #else
 
 int
 js_create_dom_tree(JSContext *ctx, char *filename, const char *charset) { return 0; }
-
-void
-js_insert_dom_tree(JSContext *ctx, const char *html) { ; }
 
 #endif /* LIBXML_TREE_ENABLED */
 

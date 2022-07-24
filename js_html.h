@@ -87,10 +87,8 @@ extern int js_is_true(JSContext *ctx, JSValue value);
 extern void js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func);
 #ifdef USE_LIBXML2
 int js_create_dom_tree(JSContext *ctx, char *filename, const char *charset);
-void js_insert_dom_tree(JSContext *ctx, const char *html);
 #else
 #define js_create_dom_tree(a, b, c) (0)
-#define js_insert_dom_tree(a, c) (0)
 #endif
 
 #endif

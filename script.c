@@ -1790,7 +1790,6 @@ script_js2buf(Buffer *buf, void *interp)
 	    }
 	    state->open = 0;
 	} else if (state->write) {
-	    js_insert_dom_tree(interp, state->write->ptr);
 	    ret = u2is(state->write);
 	    state->write = NULL;
 	}
