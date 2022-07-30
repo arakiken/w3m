@@ -42,51 +42,6 @@ remove_quotation(char *str)
     return str;
 }
 
-static Str
-escape_value(Str src)
-{
-    char *p1 = src->ptr;
-    Str dst;
-    char *p2;
-
-    while (*p1 != '\r' && *p1 != '\n' && *p1 != '\"' && *p1 != '\'') {
-	if (*p1 == '\0') {
-	    return src;
-	}
-	p1++;
-    }
-
-    dst = Strnew();
-    p2 = src->ptr;
-
-    while (1) {
-	char *str;
-
-	if (*p1 == '\0') {
-	    break;
-	} else if (*p1 == '\r') {
-	    str = "\\r";
-	} else if (*p1 == '\n') {
-	    str = "\\n";
-	} else if (*p1 == '\"') {
-	    str = "\\\x22";
-	} else if (*p1 == '\'') {
-	    str = "\\'";
-	} else {
-	    p1++;
-	    continue;
-	}
-
-	Strcat_charp_n(dst, p2, p1 - p2);
-	Strcat_charp(dst, str);
-	p2 = ++p1;
-    }
-
-    Strcat_charp(dst, p2);
-
-    return dst;
-}
-
 #if 0
 static char *
 escape(char *name)
@@ -415,13 +370,44 @@ update_forms(Buffer *buf, void *interp)
     }
 }
 
+static int
+load_js(void *interp, const char *file)
+{
+    struct stat st;
+
+    if (stat(file, &st) == 0) {
+	int fd = open(file, O_RDONLY, 0600);
+
+	if (fd != -1) {
+	    char *buf = malloc(st.st_size);
+	    ssize_t len = read(fd, buf, st.st_size);
+	    close(fd);
+
+	    if (len >= 0) {
+		buf[len] = '\0';
+		js_eval(interp, buf);
+
+		return 1;
+	    }
+	}
+    }
+
+#ifdef SCRIPT_DEBUG
+    FILE *fp = fopen("scriptlog.txt", "a");
+    fprintf(fp, "%s is not found.\n", file);
+    fclose(fp);
+#endif
+
+    return 0;
+}
+
 static void
 script_buf2js(Buffer *buf, void *interp)
 {
-    JSValue ret;
+    JSValue doc;
 
-    ret = js_eval2(interp, "document;");
-    if (js_is_exception(ret)) {
+    doc = js_get_document(interp);
+    if (js_is_undefined(doc)) {
 	int i;
 	char *t, *c;
 	char *ctype;
@@ -491,7 +477,7 @@ script_buf2js(Buffer *buf, void *interp)
 		""
 		"document.implementation.createDocumentType ="
 		"  function(qualifiedNamedStr, publicId, systemId) {"
-		"    let type = new Object();"
+		"    let type = new Node(\"\");"
 		"    type.publicId = publicId;"
 		"    type.systemId = systemId;"
 		"    type.internalSubset = null;"
@@ -1095,13 +1081,54 @@ script_buf2js(Buffer *buf, void *interp)
 #endif
 	js_eval(interp, Sprintf("document.title = \"%s\";", i2uc(t))->ptr);
 	js_eval(interp, Sprintf("document.cookie = \"%s\";", remove_quotation(c))->ptr);
+
+	/* https://github.com/eligrey/Blob.js/ */
+	load_js(interp, AUXBIN_DIR "/js/Blob.js");
+	/* https://github.com/LiosK/UUID.js/ */
+	load_js(interp, AUXBIN_DIR "/js/uuid.js");
+	/* https://github.com/megawac/MutationObserver.js/ */
+	if (!load_js(interp, AUXBIN_DIR "/js/message_channel.js")) {
+	    js_eval(interp,
+		    "globalThis.MessagePort = class MessagePort {"
+		    "  postMessage(message, ...transfer) {"
+		    "    console.log(\"XXX: MessagePort.postMessage\");"
+		    "  }"
+		    "  start() {"
+		    "    console.log(\"XXX: MessagePort.start\");"
+		    "  }"
+		    "  close() {"
+		    "    console.log(\"XXX: MessagePort.close\");"
+		    "  }"
+		    "};"
+		    ""
+		    "globalThis.MessageChannel = class MessageChannel {"
+		    "  constructor() {"
+		    "    this.port1 = new MessagePort();"
+		    "    this.port2 = new MessagePort();"
+		    "  }"
+		    "};");
+	}
+	/* https://github.com/tildeio/MessageChannel.js/ */
+	if (!load_js(interp, AUXBIN_DIR "/js/mutationobserver.min.js")) {
+	    js_eval(interp,
+		    "globalThis.MutationObserver = class MutationObserver {"
+		    "  constructor(callback) {"
+		    "    this.callback = callback;"
+		    "  }"
+		    "  observe(target, options) {"
+		    "    console.log(\"XXX: MutationObserver.observe\");"
+		    "  }"
+		    "  disconnect() {"
+		    "    console.log(\"XXX: MutationObserver.disconnect\");"
+		    "  }"
+		    "};");
+	}
     } else {
 	js_eval(interp,
 		"w3m_initDocumentTree(document);"
 		"w3m_reset_onload(window);"
 		"w3m_reset_onload(document);");
     }
-    js_free(interp, ret);
 
     js_eval(interp, Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;", buf->COLS * term_ppc)->ptr);
     js_eval(interp, Sprintf("screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;", buf->LINES * term_ppl)->ptr);
@@ -1299,7 +1326,6 @@ push_func(GeneralList **list, Str func)
 }
 
 static int
-
 get_form_element(Buffer *buf, void *interp, int i, int j, FormItemList *fi)
 {
     JSValue val;

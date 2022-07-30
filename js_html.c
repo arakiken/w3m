@@ -15,6 +15,7 @@ typedef struct _CtxState {
     JSValue *funcs;
     int nfuncs;
     Buffer *buf;
+    JSValue document;
 } CtxState;
 
 #if 1
@@ -35,6 +36,7 @@ static JSClassID HTMLSelectElementClassID;
 static JSClassID HTMLScriptElementClassID;
 static JSClassID HTMLCanvasElementClassID;
 static JSClassID ElementClassID;
+static JSClassID NodeClassID;
 static JSClassID SVGElementClassID;
 static JSClassID XMLHttpRequestClassID;
 static JSClassID CanvasRenderingContext2DClassID;
@@ -79,9 +81,7 @@ backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
     fclose(fp);
 #endif
 
-    if (JS_IsException(eval_ret) &&
-	/* see script_buf2js() in script.c */
-	strcmp(script, "document;") != 0) {
+    if (JS_IsException(eval_ret)) {
 	JSValue err = JS_GetException(ctx);
 	const char *err_str = JS_ToCString(ctx, err);
 
@@ -1134,13 +1134,13 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "tagName", JS_DupValue(ctx, tagname));
     JS_SetPropertyStr(ctx, obj, "parentElement", JS_NULL);
     JS_SetPropertyStr(ctx, obj, "querySelector",
-		      JS_Eval(ctx, "document.querySelector;", 23, "<input>", EVAL_FLAG));
+		      JS_GetPropertyStr(ctx, js_get_document(ctx), "querySelector"));
     JS_SetPropertyStr(ctx, obj, "querySelectorAll",
-		      JS_Eval(ctx, "document.querySelectorAll;", 26, "<input>", EVAL_FLAG));
+		      JS_GetPropertyStr(ctx, js_get_document(ctx), "querySelectorAll"));
     JS_SetPropertyStr(ctx, obj, "getElementsByTagName",
-		      JS_Eval(ctx, "document.getElementsByTagName;", 30, "<input>", EVAL_FLAG));
+		      JS_GetPropertyStr(ctx, js_get_document(ctx), "getElementsByTagName"));
     JS_SetPropertyStr(ctx, obj, "getElementsByClassName",
-		      JS_Eval(ctx, "document.getElementsByClassName;", 32, "<input>", EVAL_FLAG));
+		      JS_GetPropertyStr(ctx, js_get_document(ctx), "getElementsByClassName"));
 
     JS_SetPropertyStr(ctx, obj, "clientWidth", JS_NewInt32(ctx, term_ppc));
     JS_SetPropertyStr(ctx, obj, "clientHeight", JS_NewInt32(ctx, term_ppl));
@@ -1381,6 +1381,40 @@ element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv);
 
+static void
+add_node_to(JSContext *ctx, JSValue node, char *array_name)
+{
+    JSValue array = JS_GetPropertyStr(ctx, js_get_document(ctx), array_name);
+    JSValue prop = JS_GetPropertyStr(ctx, array, "push");
+    JS_FreeValue(ctx, JS_Call(ctx, prop, array, 1, &node));
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, array);
+}
+
+static void
+remove_node_from(JSContext *ctx, JSValue node, char *array_name)
+{
+    JSValue array = JS_GetPropertyStr(ctx, js_get_document(ctx), array_name);
+    JSValue prop = JS_GetPropertyStr(ctx, array, "indexOf");
+    JSValue ret = JS_Call(ctx, prop, array, 1, &node);
+    int idx;
+
+    JS_FreeValue(ctx, prop);
+    JS_ToInt32(ctx, &idx, ret);
+    if (idx >= 0) {
+	JSValue args[2];
+
+	prop = JS_GetPropertyStr(ctx, array, "splice");
+	args[0] = ret;
+	args[1] = JS_NewInt32(ctx, 1);
+	JS_FreeValue(ctx, JS_Call(ctx, prop, array, 2, args));
+	JS_FreeValue(ctx, args[1]);
+    }
+    JS_FreeValue(ctx, ret);
+    JS_FreeValue(ctx, prop);
+    JS_FreeValue(ctx, array);
+}
+
 static JSValue
 element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc,
 				      JSValueConst *argv, int append_child)
@@ -1408,7 +1442,7 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
     }
     JS_FreeValue(ctx, val);
 
-    val = JS_Eval(ctx, "document.documentElement;", 25, "<input>", EVAL_FLAG);
+    val = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
     if (JS_VALUE_GET_PTR(val) == JS_VALUE_GET_PTR(argv[0])) {
 	JS_FreeValue(ctx, val);
 	log_msg("appendChild: HIERARCHY_REQUEST_ERR");
@@ -1492,11 +1526,35 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 #endif
 
     if (iret >= 0) {
+	char *tag;
+
 #if 1
 	/* XXX for acid3 test 65 and 69 */
-	char *script = Sprintf("w3m_onload(this.children[%d]);", iret)->ptr;
+	char *script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
 	JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
 #endif
+
+	tag = get_cstr(ctx, argv[0]);
+	if (tag != NULL) {
+	    if (strcasecmp(tag, "script") == 0) {
+		add_node_to(ctx, argv[0], "scripts");
+	    } else if (strcasecmp(tag, "img") == 0) {
+		add_node_to(ctx, argv[0], "images");
+	    } else if (strcasecmp(tag, "a") == 0) {
+		/* XXX Ignore <area> tag which has href attribute. */
+		add_node_to(ctx, argv[0], "links");
+	    }
+#if 0
+	    else if (strcasecmp(tag, "form") == 0 ||
+		     strcasecmp(tag, "select") == 0 ||
+		     strcasecmp(tag, "input") == 0 ||
+		     strcasecmp(tag, "textarea") == 0 ||
+		     strasecmp(tag, "button") == 0) {
+		/* XXX should add to document.forms */
+	    }
+#endif
+	}
+
 	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
     } else {
 	return JS_EXCEPTION;
@@ -1519,6 +1577,7 @@ static JSValue
 element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue children, prop, argv2[2];
+    char *tag;
 
     if (argc < 1) {
 	return JS_EXCEPTION;
@@ -1537,6 +1596,27 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
     }
     JS_FreeValue(ctx, argv2[0]);
     JS_FreeValue(ctx, children);
+
+    tag = get_cstr(ctx, argv[0]);
+    if (tag != NULL) {
+	if (strcasecmp(tag, "script") == 0) {
+	    remove_node_from(ctx, argv[0], "scripts");
+	} else if (strcasecmp(tag, "img") == 0) {
+	    remove_node_from(ctx, argv[0], "images");
+	} else if (strcasecmp(tag, "a") == 0) {
+	    /* XXX Ignore <area> tag which has href attribute. */
+	    remove_node_from(ctx, argv[0], "links");
+	}
+#if 0
+	else if (strcasecmp(tag, "form") == 0 ||
+		 strcasecmp(tag, "select") == 0 ||
+		 strcasecmp(tag, "input") == 0 ||
+		 strcasecmp(tag, "textarea") == 0 ||
+		 strasecmp(tag, "button") == 0) {
+	    /* XXX should remove from document.forms */
+	}
+#endif
+    }
 
     return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
 }
@@ -1729,14 +1809,14 @@ static JSValue
 element_owner_document_get(JSContext *ctx, JSValueConst jsThis)
 {
     /* XXX */
-    return JS_Eval(ctx, "document;", 9, "<input>", EVAL_FLAG);
+    return JS_DupValue(ctx, js_get_document(ctx));
 }
 
 static JSValue
 element_content_window_get(JSContext *ctx, JSValueConst jsThis)
 {
-    /* XXX */
-    return JS_Eval(ctx, "window;", 7, "<input>", EVAL_FLAG);
+    /* XXX global == window */
+    return JS_GetGlobalObject(ctx);
 }
 
 static JSValue
@@ -1969,6 +2049,25 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     return JS_UNDEFINED;
 }
 
+static const JSClassDef NodeClass = {
+    "Node", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+node_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+
+    if (argc < 1 || !JS_IsString(argv[0])) {
+	return JS_EXCEPTION;
+    }
+
+    obj = JS_NewObjectClass(ctx, NodeClassID);
+    set_element_property(ctx, obj, argv[0]);
+
+    return obj;
+}
+
 static JSValue
 contains(JSContext *ctx, JSValueConst jsThis, JSValueConst other)
 {
@@ -2081,7 +2180,8 @@ static JSValue
 element_class_name_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
     const char *name = JS_ToCString(ctx, val);
-    char *script = Sprintf("this.classList.value = \"%s\";", name)->ptr;
+    char *script = Sprintf("this.classList.value = \"%s\";",
+			   escape_value(Strnew_charp(name))->ptr)->ptr;
     JS_FreeCString(ctx, name);
 
     return backtrace(ctx, script,
@@ -3554,18 +3654,6 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	""
-	"globalThis.MutationObserver = class MutationObserver {"
-	"  constructor(callback) {"
-	"    this.callback = callback;"
-	"  }"
-	"  observe(target, options) {"
-	"    console.log(\"XXX: MutationObserver.observe\");"
-	"  }"
-	"  disconnect() {"
-	"    console.log(\"XXX: MutationObserver.disconnect\");"
-	"  }"
-	"};"
-	""
 	"globalThis.IntersectionObserver = class IntersectionObserver {"
 	"  constructor(callback) {"
 	"    this.callback = callback;"
@@ -3740,24 +3828,6 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	""
-	"globalThis.MessagePort = class MessagePort {"
-	"  postMessage(message, ...transfer) {"
-	"    console.log(\"XXX: MessagePort.posMessage\");"
-	"  }"
-	"  start() {"
-	"    console.log(\"XXX: MessagePort.start\");"
-	"  }"
-	"  close() {"
-	"    console.log(\"XXX: MessagePort.close\");"
-	"  }"
-	"};"
-	""
-	"globalThis.MessageChannel = class MessageChannel {"
-	"  constructor() {"
-	"    this.port1 = new MessagePort();"
-	"    this.port2 = new MessagePort();"
-	"  }"
-	"};"
 	""
 	"function importScripts(...scripts) {"
 	"  console.log(\"XXX: importScripts\");"
@@ -3850,6 +3920,10 @@ js_html_init(Buffer *buf)
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &ElementClass,
 		 element_new);
 
+    create_class(ctx, gl, &NodeClassID, "Node", ElementFuncs,
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &NodeClass,
+		 node_new);
+
     create_class(ctx, gl, &HistoryClassID, "History", HistoryFuncs,
 		 sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]), &HistoryClass,
 		 history_new);
@@ -3911,6 +3985,7 @@ js_html_init(Buffer *buf)
     ctxstate->funcs = NULL;
     ctxstate->nfuncs = 0;
     ctxstate->buf = buf;
+    ctxstate->document = JS_UNDEFINED;
     JS_SetContextOpaque(ctx, ctxstate);
 
     return ctx;
@@ -3936,6 +4011,7 @@ js_html_final(JSContext *ctx) {
 	JS_FreeValue(ctx, ctxstate->funcs[i]);
     }
     GC_FREE(ctxstate->funcs);
+    JS_FreeValue(ctx, ctxstate->document);
     GC_FREE(ctxstate);
 
     JS_FreeContext(ctx);
@@ -4184,21 +4260,29 @@ js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func)
     }
     JS_FreeValue(ctx, jsThis);
 }
-#endif
+
+/* Don't JS_Free() the return value. */
+JSValue
+js_get_document(JSContext *ctx)
+{
+    CtxState *ctxstate = JS_GetContextOpaque(ctx);
+
+    if (JS_IsUndefined(ctxstate->document)) {
+	JSValue document = JS_Eval(ctx, "document;", 9, "<input>", EVAL_FLAG);
+
+	if (JS_IsException(document)) {
+	    return JS_UNDEFINED;
+	}
+	ctxstate->document = document;
+    }
+
+    return ctxstate->document;
+}
+#endif /* USE_JAVASCRIPT */
 
 #ifdef USE_LIBXML2
 
 #ifdef LIBXML_TREE_ENABLED
-static void
-push_node_to(JSContext *ctx, JSValue node, char *array_name)
-{
-    JSValue array = js_eval2(ctx, array_name);
-    JSValue prop = JS_GetPropertyStr(ctx, array, "push");
-    JS_FreeValue(ctx, JS_Call(ctx, prop, array, 1, &node));
-    JS_FreeValue(ctx, prop);
-    JS_FreeValue(ctx, array);
-}
-
 static JSValue
 find_form(JSContext *ctx, xmlNode *node)
 {
@@ -4282,10 +4366,8 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 
 	    if (strcasecmp((char*)node->name, "SCRIPT") == 0) {
 		jsnode = html_script_element_new(ctx, jsparent, 0, NULL);
-		push_node_to(ctx, jsnode, "document.scripts;");
 	    } else if (strcasecmp((char*)node->name, "IMG") == 0) {
 		jsnode = html_image_element_new(ctx, jsparent, 0, NULL);
-		push_node_to(ctx, jsnode, "document.images;");
 	    } else if (strcasecmp((char*)node->name, "CANVAS") == 0) {
 		jsnode = html_canvas_element_new(ctx, jsparent, 0, NULL);
 	    } else if (strcasecmp((char*)node->name, "FORM") == 0) {
@@ -4296,11 +4378,6 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);
 		JS_FreeValue(ctx, arg);
-
-		/* XXX Ignore <area> tag which has href attribute. */
-		if (strcasecmp((char*)node->name, "a") == 0) {
-		    push_node_to(ctx, jsnode, "document.links;");
-		}
 	    }
 
 	    for (attr = node->properties; attr != NULL; attr = attr->next) {
@@ -4428,9 +4505,9 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 	xmlAttr *attr;
 
 	if (strcmp((char*)node->name, "head") == 0) {
-	    element = js_eval2(ctx, "document.head;");
+	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
 	} else if (strcmp((char*)node->name, "body") == 0) {
-	    element = js_eval2(ctx, "document.body;");
+	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
 	} else {
 #ifdef DOM_DEBUG
 	    FILE *fp = fopen("domlog.txt", "a");
@@ -4486,3 +4563,48 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset) { return
 #endif /* LIBXML_TREE_ENABLED */
 
 #endif
+
+Str
+escape_value(Str src)
+{
+    char *p1 = src->ptr;
+    Str dst;
+    char *p2;
+
+    while (*p1 != '\r' && *p1 != '\n' && *p1 != '\"' && *p1 != '\'') {
+	if (*p1 == '\0') {
+	    return src;
+	}
+	p1++;
+    }
+
+    dst = Strnew();
+    p2 = src->ptr;
+
+    while (1) {
+	char *str;
+
+	if (*p1 == '\0') {
+	    break;
+	} else if (*p1 == '\r') {
+	    str = "\\r";
+	} else if (*p1 == '\n') {
+	    str = "\\n";
+	} else if (*p1 == '\"') {
+	    str = "\\\x22";
+	} else if (*p1 == '\'') {
+	    str = "\\'";
+	} else {
+	    p1++;
+	    continue;
+	}
+
+	Strcat_charp_n(dst, p2, p1 - p2);
+	Strcat_charp(dst, str);
+	p2 = ++p1;
+    }
+
+    Strcat_charp(dst, p2);
+
+    return dst;
+}

@@ -65,7 +65,6 @@ typedef struct _XMLHttpRequestState {
 #define u2ic(s) wc_Str_conv(Strnew_charp(s), WC_CES_UTF_8, InnerCharset)->ptr
 
 #define js_is_undefined(val) JS_IsUndefined(val)
-#define js_is_exception(val) JS_IsException(val)
 #define js_is_object(val) JS_IsObject(val)
 #define js_set_state(obj, op) JS_SetOpaque(obj, op)
 #define js_get_state(obj, id) JS_GetOpaque(obj, id)
@@ -85,10 +84,13 @@ extern Str js_get_function(JSContext *ctx, char *script);
 extern int js_get_int(JSContext *ctx, int *i, JSValue value);
 extern int js_is_true(JSContext *ctx, JSValue value);
 extern void js_add_event_listener(JSContext *ctx, JSValue jsThis, char *type, char *func);
+extern JSValue js_get_document(JSContext *ctx);
 #ifdef USE_LIBXML2
 int js_create_dom_tree(JSContext *ctx, char *filename, const char *charset);
 #else
 #define js_create_dom_tree(a, b, c) (0)
 #endif
+
+Str escape_value(Str src);
 
 #endif
