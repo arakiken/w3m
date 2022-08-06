@@ -187,7 +187,7 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 	strcmp(str, "click") != 0 && strcmp(str, "keypress") != 0 &&
 	strcmp(str, "keydown") != 0 && strcmp(str, "keyup") != 0 &&
 	strcmp(str, "input") != 0 && strcmp(str, "focus") != 0 &&
-	strcmp(str, "message") != 0)
+	strcmp(str, "message") != 0 && strcmp(str, "change") != 0)
 #endif
     {
 	FILE *fp = fopen("scriptlog.txt", "a");
@@ -1117,6 +1117,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     init_children(ctx, obj, str);
 
     /* Node */
+    JS_SetPropertyStr(ctx, obj, "ownerDocument", JS_DupValue(ctx, js_get_document(ctx)));
     JS_SetPropertyStr(ctx, obj, "parentNode", JS_NULL);
     if (strcasecmp(str, "#text") == 0) {
 	JS_SetPropertyStr(ctx, obj, "nodeType", JS_NewInt32(ctx, 3)); /* TEXT_NODE */
@@ -1181,7 +1182,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     if (strcasecmp(str, "IFRAME") == 0) {
 	const char script[] =
 	    "{"
-	    "  let doc = Object.assign(new Document(), document);"
+	    "  let doc = new Document();"
+	    "  w3m_initDocument(doc);"
 	    "  w3m_initDocumentTree(doc);"
 	    "  doc;"
 	    "}";
@@ -1420,9 +1422,16 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 				      JSValueConst *argv, int append_child)
 {
     JSValue val;
+    JSValue doc;
     JSValue prop;
     JSValue vret;
     int32_t iret;
+
+#if 0
+    FILE *fp = fopen("w3mlog.txt", "a");
+    fprintf(fp, "Ref count %d\n", ((JSRefCountHeader*)JS_VALUE_GET_PTR(argv[0]))->ref_count);
+    fclose(fp);
+#endif
 
     if (append_child) {
 	if (argc < 1) {
@@ -1442,20 +1451,21 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
     }
     JS_FreeValue(ctx, val);
 
-    val = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
-    if (JS_VALUE_GET_PTR(val) == JS_VALUE_GET_PTR(argv[0])) {
+    doc = JS_GetPropertyStr(ctx, jsThis, "ownerDocument");
+    if (JS_IsObject(doc)) {
+	val = JS_GetPropertyStr(ctx, doc, "documentElement");
+	if (JS_VALUE_GET_PTR(val) == JS_VALUE_GET_PTR(argv[0])) {
+	    JS_FreeValue(ctx, val);
+	    log_msg("appendChild: HIERARCHY_REQUEST_ERR");
+
+	    return JS_EXCEPTION;
+	}
 	JS_FreeValue(ctx, val);
-	log_msg("appendChild: HIERARCHY_REQUEST_ERR");
 
-	return JS_EXCEPTION;
+	JS_SetPropertyStr(ctx, argv[0], "ownerDocument", doc);
+    } else {
+	JS_FreeValue(ctx, doc);
     }
-    JS_FreeValue(ctx, val);
-
-#if 0
-    FILE *fp = fopen("w3mlog.txt", "a");
-    fprintf(fp, "Ref count %d\n", ((JSRefCountHeader*)JS_VALUE_GET_PTR(argv[0]))->ref_count);
-    fclose(fp);
-#endif
 
     val = JS_GetPropertyStr(ctx, argv[0], "id");
     if (JS_IsString(val)) {
@@ -1526,15 +1536,8 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 #endif
 
     if (iret >= 0) {
-	char *tag;
+	char *tag = get_cstr(ctx, argv[0]);
 
-#if 1
-	/* XXX for acid3 test 65 and 69 */
-	char *script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
-	JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
-#endif
-
-	tag = get_cstr(ctx, argv[0]);
 	if (tag != NULL) {
 	    if (strcasecmp(tag, "script") == 0) {
 		add_node_to(ctx, argv[0], "scripts");
@@ -1554,6 +1557,12 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 	    }
 #endif
 	}
+
+#if 1
+	/* XXX for acid3 test 65 and 69 */
+	char *script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
+	JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+#endif
 
 	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
     } else {
@@ -1577,6 +1586,7 @@ static JSValue
 element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue children, prop, argv2[2];
+    int removed = 0;
     char *tag;
 
     if (argc < 1) {
@@ -1593,6 +1603,7 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 	JS_FreeValue(ctx, JS_Call(ctx, prop, children, 2, argv2));
 	JS_FreeValue(ctx, prop);
 	JS_FreeValue(ctx, argv2[1]);
+	removed = 1;
     }
     JS_FreeValue(ctx, argv2[0]);
     JS_FreeValue(ctx, children);
@@ -1617,6 +1628,13 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 	}
 #endif
     }
+
+#if 0
+    /* XXX */
+    if (!removed) {
+	return JS_EXCEPTION;
+    }
+#endif
 
     return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
 }
@@ -1803,13 +1821,6 @@ element_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
-}
-
-static JSValue
-element_owner_document_get(JSContext *ctx, JSValueConst jsThis)
-{
-    /* XXX */
-    return JS_DupValue(ctx, js_get_document(ctx));
 }
 
 static JSValue
@@ -2270,7 +2281,6 @@ element_href_get(JSContext *ctx, JSValueConst jsThis)
 
 static const JSCFunctionListEntry ElementFuncs[] = {
     /* Node (see DocumentFuncs) */
-    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
     JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
@@ -2812,6 +2822,7 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	const char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), this);"
+	    "  w3m_initDocument(doc);"
 	    "  w3m_initDocumentTree(doc);"
 	    "  w3m_cloneNode(doc, this);"
 	    "  doc;"
@@ -2823,6 +2834,7 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	const char script[] =
 	    "{"
 	    "  let doc = Object.assign(new Document(), this);"
+	    "  w3m_initDocument(doc);"
 	    "  w3m_initDocumentTree(doc);"
 	    "  doc;"
 	    "}";
@@ -2834,7 +2846,6 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 
 static const JSCFunctionListEntry DocumentFuncs[] = {
     /* Node (see ElementFuncs) */
-    JS_CGETSET_DEF("ownerDocument", element_owner_document_get, NULL),
     JS_CFUNC_DEF("appendChild", 1, element_append_child),
     JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
     JS_CFUNC_DEF("removeChild", 1, element_remove_child),
@@ -3847,7 +3858,7 @@ js_html_init(Buffer *buf)
 #if 0
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \")\");"
+	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].formName + \")\");"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -4098,7 +4109,7 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
 		jsThis = JS_NewObject(ctx);
 		JS_SetPropertyStr(ctx, jsThis, "form", form);
 	    }
-	    ret = JS_Call(ctx, ctxstate->funcs[idx], jsThis, 0, NULL);
+	    ret = backtrace(ctx, script, JS_Call(ctx, ctxstate->funcs[idx], jsThis, 0, NULL));
 	    JS_FreeValue(ctx, jsThis);
 
 	    return ret;
