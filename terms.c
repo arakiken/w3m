@@ -2459,16 +2459,44 @@ sleep_till_anykey(int sec, int purge)
     int er, c, ret;
     TerminalMode ioval;
 
+#ifdef USE_SCRIPT
+    int buf2js = 1;
+    int msec = sec * 1000;
+    struct timeval before, after;
+#endif
+
     TerminalGet(tty, &ioval);
     term_raw();
 
+#ifdef USE_SCRIPT
+  retry:
+    /* Exclude the time of executing trigger_interval() and other functions. */
+    gettimeofday(&before, NULL);
+    tim.tv_sec = 0;
+    tim.tv_usec = 100000;
+#else
     tim.tv_sec = sec;
     tim.tv_usec = 0;
+#endif
 
     FD_ZERO(&rfd);
     FD_SET(tty, &rfd);
 
     ret = select(tty + 1, &rfd, 0, 0, &tim);
+#ifdef USE_SCRIPT
+    if (ret == 0) {
+	if (msec > 100) {
+	    msec -= 100;
+	    after.tv_sec = before.tv_sec;
+	    after.tv_usec = before.tv_usec + 100000;
+	    trigger_interval(Currentbuf,
+			     (after.tv_sec - before.tv_sec) * 1000 +
+			     (after.tv_usec - before.tv_usec) / 1000, buf2js, 0);
+	    buf2js = 0;
+	    goto retry;
+	}
+    }
+#endif
     if (ret > 0 && purge) {
 	c = getch();
 	if (c == ESC_CODE)
@@ -2481,7 +2509,10 @@ sleep_till_anykey(int sec, int purge)
     }
 
 #ifdef USE_SCRIPT
-    trigger_interval(sec);
+    gettimeofday(&after, NULL);
+    trigger_interval(Currentbuf,
+		     (after.tv_sec - before.tv_sec) * 1000 +
+		     (after.tv_usec - before.tv_usec) / 1000, buf2js, 1);
 #endif
 
     return ret;

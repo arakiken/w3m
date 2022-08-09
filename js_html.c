@@ -1138,10 +1138,6 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 		      JS_GetPropertyStr(ctx, js_get_document(ctx), "querySelector"));
     JS_SetPropertyStr(ctx, obj, "querySelectorAll",
 		      JS_GetPropertyStr(ctx, js_get_document(ctx), "querySelectorAll"));
-    JS_SetPropertyStr(ctx, obj, "getElementsByTagName",
-		      JS_GetPropertyStr(ctx, js_get_document(ctx), "getElementsByTagName"));
-    JS_SetPropertyStr(ctx, obj, "getElementsByClassName",
-		      JS_GetPropertyStr(ctx, js_get_document(ctx), "getElementsByClassName"));
 
     JS_SetPropertyStr(ctx, obj, "clientWidth", JS_NewInt32(ctx, term_ppc));
     JS_SetPropertyStr(ctx, obj, "clientHeight", JS_NewInt32(ctx, term_ppl));
@@ -1179,7 +1175,7 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
 
     /* XXX HTMLIFrameElement */
-    if (strcasecmp(str, "IFRAME") == 0) {
+    if (strcasecmp(str, "IFRAME") == 0 || strcasecmp(str, "OBJECT") == 0) {
 	const char script[] =
 	    "{"
 	    "  let doc = new Document();"
@@ -1991,6 +1987,21 @@ element_text_content_get(JSContext *ctx, JSValueConst jsThis)
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
+static JSValue
+element_get_number_of_chars(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char script[] = "this.textContent.length;";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_get_svg_document(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    return JS_GetPropertyStr(ctx, jsThis, "contentDocument");
+}
+
 #ifdef USE_LIBXML2
 static void
 create_tree_from_html(JSContext *ctx, JSValue parent, const char *html) {
@@ -2340,6 +2351,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
 
     /* XXX HTMLIFrameElement only */
     JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
+    JS_CFUNC_DEF("getSVGDocument", 1, element_get_svg_document),
 
     /* XXX HTMLCanvasElement only */
     JS_CFUNC_DEF("getContext", 1, element_get_context),
@@ -2348,6 +2360,9 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     /* XXX HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
     JS_CFUNC_DEF("reset", 1, html_form_element_reset),
+
+    /* XXX SVGTextContentElement */
+    JS_CFUNC_DEF("getNumberOfChars", 1, element_get_number_of_chars),
 };
 
 static JSValue
@@ -2689,7 +2704,7 @@ document_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     state->open = 1;
 
-    return JS_UNDEFINED;
+    return JS_DupValue(ctx, jsThis);
 }
 
 static JSValue
@@ -3420,26 +3435,63 @@ clear_interval(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     return JS_UNDEFINED;
 }
 
-void trigger_interval(int sec)
-{
-    int i;
-    int msec;
-    int num = num_interval_callbacks;
+struct interval_callback_sort {
+    int cur_delay;
+    int idx;
+};
 
-    msec = sec * 1000;
+int compare_interval_callback(const void *n1, const void *n2)
+{
+    if (((struct interval_callback_sort*)n1)->cur_delay >
+	((struct interval_callback_sort*)n2)->cur_delay) {
+	return 1;
+    }
+    if (((struct interval_callback_sort*)n1)->cur_delay <
+	((struct interval_callback_sort*)n2)->cur_delay) {
+	return -1;
+    }
+    return 0;
+}
+
+int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
+{
+    int i, j;
+    int num = num_interval_callbacks;
+    struct interval_callback_sort *sort_data = malloc(num * sizeof(*sort_data));
+    int executed = 0;
+
     for (i = 0; i < num; i++) {
+	sort_data[i].cur_delay = interval_callbacks[i].cur_delay;
+	sort_data[i].idx = i;
+    }
+    qsort(sort_data, num, sizeof(struct interval_callback_sort), compare_interval_callback);
+
+    for (j = 0; j < num; j++) {
+	i = sort_data[j].idx;
 	if (interval_callbacks[i].ctx != NULL) {
 	    if (interval_callbacks[i].cur_delay > msec) {
 		interval_callbacks[i].cur_delay -= msec;
 	    } else {
-		JSValue val = JS_Call(interval_callbacks[i].ctx,
-				      interval_callbacks[i].func,
-				      JS_NULL, interval_callbacks[i].argc,
-				      interval_callbacks[i].argv);
+		/* interval_callbacks[i] can be destroyed in JS_Call() below. */
+		JSContext *ctx = interval_callbacks[i].ctx;
+		CtxState *ctxstate = JS_GetContextOpaque(ctx);
+		JSValue val = backtrace(ctx, "interval/timeout function",
+					JS_Call(interval_callbacks[i].ctx,
+						interval_callbacks[i].func,
+						JS_NULL, interval_callbacks[i].argc,
+						interval_callbacks[i].argv));
+		JS_FreeValue(ctx, val);
+		if (ctxstate->buf == buf) {
+		    if (executed == 0) {
+			executed = 1;
+			if (update_forms) {
+			    update_forms(buf, ctx);
+			}
+		    }
+		}
 
 		/* interval_callbacks[i] can be destroyed in JS_Call() above. */
 		if (interval_callbacks[i].ctx != NULL) {
-		    JS_FreeValue(interval_callbacks[i].ctx, val);
 		    if (interval_callbacks[i].delay > 0) {
 			/* interval */
 			interval_callbacks[i].cur_delay = interval_callbacks[i].delay;
@@ -3453,6 +3505,8 @@ void trigger_interval(int sec)
 	    }
 	}
     }
+
+    return executed;
 }
 
 static void
@@ -3837,6 +3891,11 @@ js_html_init(Buffer *buf)
 	"    str += this.param_values[i];"
 	"    return str;"
 	"  }"
+	"  forEach(func) {"
+	"    for (let i = 0; i < this.param_keys.length; i++) {"
+	"      func(this.param_values[i], this.param_keys[i]);"
+	"    }"
+	"  }"
 	"};"
 	""
 	""
@@ -3867,6 +3926,618 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}"
 #endif
+	"function w3m_initDocumentTree(doc) {"
+	"  doc.ownerDocument = doc;"
+	"  doc.documentElement = doc.createElement(\"HTML\");"
+	"  doc.firstElementChild = doc.lastElementChild = doc.scrollingElement = doc.documentElement;"
+	"  doc.children = doc.documentElement.children;"
+	"  doc.childNodes = doc.children; /* XXX NodeList */"
+	"  doc.childElementCount = 1;"
+	"  doc.documentElement.appendChild(doc.createElement(\"HEAD\"));"
+	"  doc.documentElement.appendChild(doc.createElement(\"BODY\"));"
+	"  doc.activeElement = doc.body;"
+	"  doc.scripts = new HTMLCollection();"
+	"  doc.images = new HTMLCollection();"
+	"  doc.links = new HTMLCollection();"
+	"}"
+	""
+	"function w3m_getElementById(element, id) {"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    if (element.children[i].id === id) {"
+	"      return element.children[i];"
+	"    }"
+	"    let hit = w3m_getElementById(element.children[i], id);"
+	"    if (hit != null) {"
+	"      return hit;"
+	"    }"
+	"  }"
+	"  return null;"
+	"}"
+	""
+	"function w3m_getElementsByTagName(element, name, elements) {"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    if (name === \"*\" ? element.children[i].nodeType == 1 :"
+	"                         element.children[i].tagName === name.toUpperCase()) {"
+	"      elements.push(element.children[i]);"
+	"    }"
+	"    w3m_getElementsByTagName(element.children[i], name, elements);"
+	"  }"
+	"}"
+	""
+	"function w3m_getElementsByName(element, name, elements) {"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    if (element.children[i].name === name) {"
+	"      elements.push(element.children[i]);"
+	"    }"
+	"    w3m_getElementsByName(element.children[i], name, elements);"
+	"  }"
+	"}"
+	""
+	"function w3m_matchClassName(class1, class2) {"
+	"  let class1_array = class1.split(\" \");"
+	"  for (let c of class2.split(\" \")) {"
+	"    let i;"
+	"    for (i = 0; i < class1_array.length; i++) {"
+	"      if (c === class1_array[i]) {"
+	"        break;"
+	"      }"
+	"    }"
+	"    if (i == class1_array.length) {"
+	"      return false;"
+	"    }"
+	"  }"
+	"  return true;"
+	"}"
+	""
+	"function w3m_getElementsByClassName(element, name, elements) {"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    if (element.children[i].className) {"
+	"      if (w3m_matchClassName(element.children[i].className, name)) {"
+	"        elements.push(element.children[i]);"
+	"      }"
+	"    }"
+	"    w3m_getElementsByClassName(element.children[i], name, elements);"
+	"  }"
+	"}"
+	""
+	"function w3m_parseSelector(selector) {"
+	"  let array = selector.split(/[ >+]+/);"
+	"  for (let i = 0; i < array.length; i++) {"
+	"    if (array[i].match((/^[>~+|]+$/)) != null) {"
+	"      console.log(\"Maybe unrecognized CSS selector: \" + array[i]);"
+	"    }"
+	"    let sel = new Object();"
+	"    sel.tag = array[i].match(/^[^.#\\[]+/); /* tag */"
+	"    if (sel.tag != null) {"
+	"      sel.tag = sel.tag[0].toUpperCase();"
+	"    }"
+	"    sel.class = array[i].match(/\\.[^.#\\[]+/); /* class */"
+	"    if (sel.class != null) {"
+	"      sel.class = sel.class[0].substring(1);"
+	"    }"
+	"    sel.id = array[i].match(/#[^.#\\[]+/); /* id */"
+	"    if (sel.id != null) {"
+	"      sel.id = sel.id[0].substring(1);"
+	"    }"
+	"    sel.attr_key = array[i].match(/\\[.*\\]/);"
+	"    if (sel.attr_key != null) {"
+	"      let attr = sel.attr_key[0].substring(1, sel.attr_key[0].length - 1);"
+	"      let attr_pair = attr.split(/[~|^$*]*=/);"
+	"      sel.attr_key = attr_pair[0];"
+	"      if (attr_pair.length > 1) {"
+	"        sel.attr_value = attr_pair[1].match(/[^\"]+/)[0];"
+	"      } else {"
+	"        sel.attr_value = null;"
+	"      }"
+	"    } else {"
+	"      sel.attr_value = null;"
+	"    }"
+	"    array[i] = sel;"
+	"  }"
+	"  return array;"
+	"}"
+	""
+	"function w3m_querySelectorAllIntern(element, sel, elements) {"
+	"  if (sel.tag) {"
+	"    w3m_getElementsByTagName(element, sel.tag, elements);"
+	"  } else if (sel.class) {"
+	"    w3m_getElementsByClassName(element, sel.class, elements);"
+	"  } else if (sel.id) {"
+	"    let e = w3m_getElementById(element, sel.id);"
+	"    if (e) {"
+	"      elements.push(e);"
+	"    }"
+	"  }"
+	"}"
+	""
+	"function w3m_matchAttr(element, attr_key, attr_value) {"
+	"  if (element[attr_key]) {"
+	"    if (attr_value == null || attr_value == element[attr_key]) {"
+	"      return true;"
+	"    }"
+	"  }"
+	"  return false;"
+	"}"
+	""
+	"function w3m_querySelectorAll(element, sels, elements) {"
+	"  if (sels[0]) {"
+	"    for (let i = 0; i < element.children.length; i++) {"
+	"      if ((sels[0].tag == null || sels[0].tag == element.children[i].tagName) &&"
+	"          (sels[0].class == null ||"
+	"           w3m_matchClassName(element.children[i].className, sels[0].class)) &&"
+	"          (sels[0].id == null || sels[0].id == element.children[i].id) &&"
+	"          (sels[0].attr_key == null ||"
+	"           w3m_matchAttr(element.children[i], sels[0].attr_key, sels[0].attr_value))) {"
+	"        if (sels[1]) {"
+	"          w3m_querySelectorAllIntern(element.children[i], sels[1], elements);"
+	"        } else {"
+	"          elements.push(element.children[i]);"
+	"        }"
+	"      }"
+	"      w3m_querySelectorAll(element.children[i], sels, elements);"
+	"    }"
+	"  }"
+	"}"
+	""
+	"function w3m_initDocument(doc) {"
+	"  doc.nodeName = \"#document\";"
+	"  doc.compatMode = \"CSS1Compat\";"
+	"  doc.nodeType = 9; /* DOCUMENT_NODE */"
+	"  doc.referrer = \"\";"
+	"  doc.readyState = \"complete\";"
+	"  doc.visibilityState = \"visible\";" /* XXX */
+	"  doc.activeElement = null;"
+	"  doc.defaultView = window;"
+	"  doc.designMode = \"off\";"
+	"  doc.dir = \"ltr\";"
+	"  doc.hidden = false;"
+	"  doc.fullscreenEnabled = false;"
+	""
+	"  doc.createElement = function(tagname) {"
+	"    tagname = tagname.toUpperCase();"
+	"    let element;"
+	"    if (tagname === \"FORM\") {"
+	"      element = new HTMLFormElement();"
+	"    } else if (tagname === \"IMG\") {"
+	"      element = new HTMLImageElement();"
+	"    } else if (tagname === \"SELECT\") {"
+	"      element = new HTMLSelectElement();"
+	"    } else if (tagname === \"SCRIPT\") {"
+	"      element = new HTMLScriptElement();"
+	"    } else if (tagname === \"CANVAS\") {"
+	"      element = new HTMLCanvasElement();"
+	"    } else if (tagname === \"SVG\") {"
+	"      element = new SVGElement();"
+	"    } else {"
+	"      element = new HTMLElement(tagname);"
+	"    }"
+	"    element.ownerDocument = this;"
+	"    return element;"
+	"  };"
+	""
+	"  Object.defineProperty(doc, 'body', {"
+	"    get: function() {"
+	"      for (let i = 0; i < this.documentElement.children.length; i++) {"
+	"        if (this.documentElement.children[i].tagName === \"BODY\") {"
+	"          return this.documentElement.children[i];"
+	"        }"
+	"      }"
+	"      return null;"
+	"    },"
+	"    set: function(value) {"
+	"      for (let i = 0; i < this.documentElement.children.length; i++) {"
+	"        if (this.documentElement.children[i].tagName === \"BODY\") {"
+	"          this.removeChild(this.documentElement.children[i]);"
+	"          this.appendChild(value);"
+	"        }"
+	"      }"
+	"    }"
+	"  });"
+	"  Object.defineProperty(doc, 'head', {"
+	"    get: function() {"
+	"      for (let i = 0; i < this.documentElement.children.length; i++) {"
+	"        if (this.documentElement.children[i].tagName === \"HEAD\") {"
+	"          return this.documentElement.children[i];"
+	"        }"
+	"      }"
+	"      return null;"
+	"    },"
+	"    set: function(value) {"
+	"      for (let i = 0; i < this.documentElement.children.length; i++) {"
+	"        if (this.documentElement.children[i].tagName === \"HEAD\") {"
+	"          this.removeChild(this.documentElement.children[i]);"
+	"          this.appendChild(value);"
+	"        }"
+	"      }"
+	"    }"
+	"  });"
+	""
+	"  doc.createDocumentFragment = function() {"
+	"    let doc = new Document();"
+	"    w3m_initDocument(doc);"
+	"    w3m_initDocumentTree(doc);"
+	"    doc.nodeName = \"#document-fragment\";"
+	"    doc.nodeType = 11; /* DOCUMENT_FRAGMENT_NODE */"
+	"    return doc;"
+	"  };"
+	""
+	"  doc.implementation = new Object();"
+	""
+	"  /* XXX */"
+	"  doc.implementation.createDocument ="
+	"  doc.implementation.createHTMLDocument = function(...args) {"
+	"    let doc = new Document();"
+	"    w3m_initDocument(doc);"
+	"    w3m_initDocumentTree(doc);"
+	"    doc.title = \"\";"
+	"    if (args.length > 2) {"
+	"      args[2].ownerDocument = doc;"
+	"    }"
+	"    return doc;"
+	"  };"
+	""
+	"  doc.implementation.createDocumentType ="
+	"    function(qualifiedNamedStr, publicId, systemId) {"
+	"      let type = new Node(\"\");"
+	"      type.publicId = publicId;"
+	"      type.systemId = systemId;"
+	"      type.internalSubset = null;"
+	"      type.name = \"html\";"
+	"      /* XXX type.notations */"
+	"      return type;"
+	"    };"
+	""
+	"  doc.createElementNS = function(namespaceURI, tagname) {"
+	"    let element = this.createElement(tagname);"
+	"    element.namespaceURI = namespaceURI;"
+	"    return element;"
+	"  };"
+	""
+	"  /* see element_text_content_set() in js_html.c */"
+	"  doc.createTextNode = function(text) {"
+	"    let element = new HTMLElement(\"#text\");"
+	"    element.nodeValue = text;"
+	"    element.data = text; /* CharacterData.data */"
+	"    element.ownerDocument = this;"
+	"    return element;"
+	"  };"
+	""
+	"  doc.createComment = function(data) {"
+	"    let element = new HTMLElement(\"#comment\");"
+	"    element.nodeValue = data;"
+	"    element.data = data; /* CharacterData.data */"
+	"    element.ownerDocument = this;"
+	"    return element;"
+	"  };"
+	""
+	"  doc.createAttribute = function(name) {"
+	"    let attr = new Object();"
+	"    attr.name = attr.localName = name;"
+	"    attr.specified = true;"
+	"    return attr;"
+	"  };"
+	""
+	"  doc.getElementById = function(id) {"
+	"    let hit;"
+	"    /*"
+	"     * Search document.forms first of all because document.children"
+	"     * may not have all form elements."
+	"     * (see create_tree() in js_html.c)"
+	"     */"
+	"    for (let i = 0; i < this.forms.length; i++) {"
+	"      hit = w3m_getElementById(this.forms[i], id);"
+	"      if (hit) {"
+	"        return hit;"
+	"      }"
+	"    }"
+	"    hit = w3m_getElementById(this, id);"
+#ifdef USE_LIBXML2
+	"    return hit;"
+#else
+	"    if (hit != null) {"
+	"      return hit;"
+	"    }"
+	"    let element = this.createElement(\"SPAN\");"
+	"    element.id = id;"
+	"    element.value = \"\";"
+	"    return this.body.appendChild(element);"
+#endif
+	"  };"
+	""
+	"  doc.getElementsByTagName = function(name) {"
+	"    name = name.toUpperCase();"
+	"    if (name === \"FORM\") {"
+	"      if (!this.forms) {"
+	"        this.forms = document.forms /* new HTMLCollection() */;"
+	"      }"
+	"      return this.forms;"
+	"    } else {"
+	"      let elements = new HTMLCollection();"
+	"      if (name === \"HTML\") {"
+	"        elements.push(this.documentElement);"
+	"      } else {"
+	"        w3m_getElementsByTagName(this, name, elements);"
+#ifndef USE_LIBXML2
+	"        if (elements.length == 0) {"
+	"          if (name === \"*\") {"
+	"            name = \"SPAN\";"
+	"          }"
+	"          let element = this.createElement(name);"
+	"          element.value = \"\";"
+	"          this.body.appendChild(element);"
+	"          elements.push(element);"
+	"        }"
+#endif
+	"      }"
+	"      return elements;"
+	"    }"
+	"  };"
+	""
+	"  doc.getElementsByName = function(name) {"
+	"    let elements = new HTMLCollection();"
+	"    /*"
+	"     * document.forms is not searched because some of them are added"
+	"     * to document.children (see create_tree() in js_html.c) and it"
+	"     * is difficult to identify them by name attribute."
+	"     */"
+	"    w3m_getElementsByName(document, name, elements);"
+#ifndef USE_LIBXML2
+	"    if (elements.length == 0) {"
+	"      let element = this.createElement(\"SPAN\");"
+	"      element.name = name;"
+	"      element.value = \"\";"
+	"      this.body.appendChild(element);"
+	"      elements.push(element);"
+	"    }"
+#endif
+	"    return elements;"
+	"  };"
+	""
+	"  doc.getElementsByClassName = function(name) {"
+	"    let elements = new HTMLCollection();"
+	"    w3m_getElementsByClassName(this, name, elements);"
+#ifndef USE_LIBXML2
+	"    if (elements.length == 0) {"
+	"      let element = this.createElement(\"SPAN\");"
+	"      element.className = name;"
+	"      element.value = \"\";"
+	"      this.body.appendChild(element);"
+	"      elements.push(element);"
+	"    }"
+#endif
+	"    return elements;"
+	"  };"
+	""
+	"  doc.querySelectorAll = function(sel) {"
+	"    let elements = new NodeList();"
+	"    for (let s of sel.split(/ *,/)) {"
+	"      /* XXX */"
+	"      if (s.toUpperCase() === \"HTML\") {"
+	"        elements.push(this.documentElement);"
+	"      } else {"
+	"        w3m_querySelectorAll(this, w3m_parseSelector(s), elements);"
+	"      }"
+	"    }"
+#ifndef USE_LIBXML2
+	"    if (elements.length == 0) {"
+	"        let element = this.createElement(\"SPAN\");"
+	"        element.value = \"\";"
+	"        elements.push(this.body.appendChild(element));"
+	"    }"
+#endif
+	"    return elements;"
+	"  };"
+	""
+	"  doc.querySelector = function(sel) {"
+	"    let elements = this.querySelectorAll(sel);"
+	"    if (elements.length == 0) {"
+	"      return null;"
+	"    } else {"
+	"      return elements[0];"
+	"    }"
+	"  };"
+	""
+	"  doc.createEvent = function() {"
+	"    console.log(\"XXX: Document.createEvent\");"
+	"    return new Object();"
+	"  };"
+	""
+	"  doc.createRange = function() {"
+	"    let r = new Range();"
+	"    r.setStart(this, 0);"
+	"    r.setEnd(this, 0);"
+	"    return r;"
+	"  };"
+	""
+	"  doc.createNodeIterator = function(root, ...args) {"
+	"    return new NodeIterator(root, args[0], args[1]);"
+	"  };"
+	""
+	"  doc.execCommand = function(cmdName, showDefaultUI, valueArgument) {"
+	"    console.log(\"XXX Document.execCommand (DEPRECATED)\");"
+	"    return false;"
+	"  }"
+	"}"
+	""
+	"function w3m_textNodesToStr(node) {"
+	"  let str = \"\";"
+	"  for (let i = 0; i < node.childNodes.length; i++) {"
+	"    if (node.childNodes[i].nodeName === \"#text\" &&"
+	"        node.childNodes[i].nodeValue != null &&"
+	"        node.childNodes[i].isModified == true) {"
+	"      if (node.name != undefined) {"
+	"        str += node.name;"
+	"        str += \"=\";"
+	"      } else if (node.id != undefined) {"
+	"        str += node.id;"
+	"        str += \"=\";"
+	"      }"
+	"      str += node.childNodes[i].nodeValue;"
+	"      str += \" \";"
+	"      node.childNodes[i].isModified = false;"
+	"    }"
+	"    str += w3m_textNodesToStr(node.childNodes[i]);"
+	"  }"
+	"  return str;"
+	"}"
+	""
+	"const w3m_base64ConvTable ="
+	"  \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
+	"function w3m_btoaChar(i) {"
+	"  if (i >= 0 && i < 64) {"
+	"    return w3m_base64ConvTable[i];"
+	"  }"
+	"  return undefined;"
+	"}"
+	"function w3m_atobIndex(chr) {"
+	"  let i = w3m_base64ConvTable.indexOf(chr);"
+	"  return i < 0 ? undefined : i;"
+	"}"
+	"function atob(data) {"
+	"  data = `${data}`;"
+	"  data = data.replace(/[ \\t\\n\\f\\r]/g, \"\");"
+	"  if (data.length % 4 === 0) {"
+	"    data = data.replace(/==?$/, "");"
+	"  }"
+	"  if (data.length % 4 === 1 || /[^+/0-9A-Za-z]/.test(data)) {"
+	"    return null;"
+	"  }"
+	"  let out = \"\";"
+	"  let buf = 0;"
+	"  let nbits = 0;"
+	"  for (let i = 0; i < data.length; i++) {"
+	"    buf <<= 6;"
+	"    buf |= w3m_atobIndex(data[i]);"
+	"    nbits += 6;"
+	"    if (nbits === 24) {"
+	"      out += String.fromCharCode((buf & 0xff0000) >> 16);"
+	"      out += String.fromCharCode((buf & 0xff00) >> 8);"
+	"      out += String.fromCharCode(buf & 0xff);"
+	"      buf = nbits = 0;"
+	"    }"
+	"  }"
+	"  if (nbits === 12) {"
+	"    buf >>= 4;"
+	"    out += String.fromCharCode(buf);"
+	"  } else if (nbits === 18) {"
+	"    buf >>= 2;"
+	"    out += String.fromCharCode((buf & 0xff00) >> 8);"
+	"    out += String.fromCharCode(buf & 0xff);"
+	"  }"
+	"  return out;"
+	"}"
+	"function btoa(data) {"
+	"  data = `${data}`;"
+	"  for (let i = 0; i < data.length; i++) {"
+	"    if (data.charCodeAt(i) > 255) {"
+	"      return null;"
+	"    }"
+	"  }"
+	"  let out = \"\";"
+	"  for (let i = 0; i < data.length; i += 3) {"
+	"    let set = [undefined, undefined, undefined, undefined];"
+	"    set[0] = data.charCodeAt(i) >> 2;"
+	"    set[1] = (data.charCodeAt(i) & 0x03) << 4;"
+	"    if (data.length > i + 1) {"
+	"      set[1] |= data.charCodeAt(i + 1) >> 4;"
+	"      set[2] = (data.charCodeAt(i + 1) & 0x0f) << 2;"
+	"    }"
+	"    if (data.length > i + 2) {"
+	"      set[2] |= data.charCodeAt(i + 2) >> 6;"
+	"      set[3] = data.charCodeAt(i + 2) & 0x3f;"
+	"    }"
+	"    for (let j = 0; j < set.length; j++) {"
+	"      if (typeof set[j] === \"undefined\") {"
+	"        out += \"=\";"
+	"      } else {"
+	"        out += w3m_btoaChar(set[j]);"
+	"      }"
+	"    }"
+	"  }"
+	"  return out;"
+	"}"
+	""
+	"function w3m_onload(obj) {"
+	"  if (obj.w3m_events && obj.w3m_events.length > 0) {"
+	"    /*"
+	"     * 'i = 0; ...;i++' falls infinite loop if a listener calls addEventListener()."
+	"     * The case of calling removeEventListener() is not considered."
+	"     */"
+	"    for (let i = obj.w3m_events.length - 1; i >= 0; i--) {"
+	"      if (obj.w3m_events[i].type === \"loadstart\" ||"
+	"          obj.w3m_events[i].type === \"load\" ||"
+	"          obj.w3m_events[i].type === \"loadend\" ||"
+	"          obj.w3m_events[i].type === \"DOMContentLoaded\" ||"
+	"          obj.w3m_events[i].type === \"visibilitychange\") {"
+	"        if (typeof obj.w3m_events[i].listener === \"function\") {"
+	"          obj.w3m_events[i].listener(obj.w3m_events[i]);"
+	"        } else if (obj.w3m_events[i].listener.handleEvent &&"
+	"                   typeof obj.w3m_events[i].listener.handleEvent === \"function\") {"
+	"          obj.w3m_events[i].listener.handleEvent(obj.w3m_events[i]);"
+	"        }"
+	"        obj.w3m_events.splice(i, 1);"
+	"      }"
+	"    }"
+	"  }"
+	"  if (obj.onloadstart) {"
+	"    if (typeof obj.onloadstart === \"string\") {"
+	"      try {"
+	"        eval(obj.onloadstart);"
+	"      } catch (e) {"
+	"        console.log(\"Error in onloadstart: \" + e.message);"
+	"      }"
+	"    } else if (typeof obj.onloadstart === \"function\") {"
+	"      obj.onloadstart();"
+	"    }"
+	"    obj.onloadstart = undefined;"
+	"  }"
+	"  if (obj.onload) {"
+	"    if (typeof obj.onload === \"string\") {"
+	"      try {"
+	"        eval(obj.onload);"
+	"      } catch (e) {"
+	"        console.log(\"Error in onload: \" + e.message);"
+	"        console.log(obj.onload);"
+	"      }"
+	"    } else if (typeof obj.onload === \"function\") {"
+	"      obj.onload();"
+	"    }"
+	"    obj.onload = undefined;"
+	"  }"
+	"  if (obj.onloadend) {"
+	"    if (typeof obj.onloadend === \"string\") {"
+	"      try {"
+	"        eval(obj.onloadend);"
+	"      } catch (e) {"
+	"        console.log(\"Error in onloadend: \" + e.message);"
+	"      }"
+	"    } else if (typeof obj.onloadend === \"function\") {"
+	"      obj.onloadend();"
+	"    }"
+	"    obj.onloadend = undefined;"
+	"  }"
+	"}"
+	"function w3m_element_onload(element) {"
+	"  w3m_onload(element);"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    w3m_onload(element.children[i]);"
+	"  }"
+	"}"
+	"function w3m_reset_onload(obj) {"
+	"  if (obj.w3m_events) {"
+	"    obj.w3m_events = undefined;"
+	"  }"
+	"  if (obj.onloadstart) {"
+	"    obj.w3m_onloadstart = undefined;"
+	"  }"
+	"  if (obj.onload) {"
+	"    obj.w3m_onload = undefined;"
+	"  }"
+	"  if (obj.onloadend) {"
+	"    obj.w3m_onloadend = undefined;"
+	"  }"
+	"}"
+	""
 	"globalThis.URL = class URL extends Location {"
 	"  /* XXX */"
 	"  static createObjectURL(object) {"
@@ -4052,11 +4723,36 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "var returnNodesAry=rangeNode.getElementsByTagName(aTagName);";
+    const char seq[] = "function jsDoCompressAct(){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(returnNodesAry);");
+	Strcat_charp(str, "console.log(\"START COMPRESS ACT\");");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    char *beg = script;
+    char *p;
+    const char seq[] = "var tarNode=aNode;";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "if (! aNode) try { throw new Error('original'); } catch (e) { console.log(e.stack); }");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    /* www.pref.hiroshima.lg.jp */
+    char *beg = script;
+    char *p;
+    const char seq[] = "decodeURIComponent(t[1]).replace(/\\+/g,\" \"));";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "if (!r.pids) { r.pids = \"\"; }");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -4084,6 +4780,17 @@ js_eval2(JSContext *ctx, char *script) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
 	Strcat_charp(str, "console.log(log);/*dump_element(document, \"\");*/");
         beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq2[] = "kungFuDeathGrip.childNodes[1].contentDocument;";
+    str = Strnew();
+    while ((p = strstr(beg, seq2))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
+	Strcat_charp(str, "dump_tree(kungFuDeathGrip, \"\");");
+        beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;

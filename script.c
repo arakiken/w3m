@@ -114,13 +114,16 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
     if (opt->label)
 	ol = i2us(opt->label)->ptr;
 
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].appendChild(document.createElement(\"option\"));", i, j)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].options[%d].value = \"%s\";", i, j, k, ov)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].options[%d].text = \"%s\";", i, j, k, ol)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].options[%d].selected = %s;", i, j, k, opt->checked ? "true" : "false")->ptr);
+    js_eval(interp,
+	    Sprintf("document.forms[%d].elements[%d].appendChild(document.createElement(\"option\"));"
+		    "document.forms[%d].elements[%d].options[%d].value = \"%s\";"
+		    "document.forms[%d].elements[%d].options[%d].text = \"%s\";"
+		    "document.forms[%d].elements[%d].options[%d].selected = %s;"
+		    /* http://www.shurey.com/js/samples/6_smp7.html */
+		    "document.forms[%d].elements[%d][\"%d\"] = document.forms[%d].elements[%d].options[%d];",
+		    i, j, i, j, k, ov, i, j, k, ol, i, j, k, opt->checked ? "true" : "false",
+		    i, j, k, i, j, k)->ptr);
 
-    /* http://www.shurey.com/js/samples/6_smp7.html */
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d][\"%d\"] = document.forms[%d].elements[%d].options[%d];", i, j, k, i, j, k)->ptr);
 
 #ifdef SET_FORM_OPAQUE
     {
@@ -227,11 +230,13 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	t = ""; break;
     }
 
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].id = \"%s\";", i, j, id)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].name = \"%s\";", i, j, n)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].type = \"%s\";", i, j, t)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].value = \"%s\";", i, j, v)->ptr);
-    js_eval(interp, Sprintf("document.forms[%d].elements[%d].className = \"%s\";", i, j, c)->ptr);
+    js_eval(interp,
+	    Sprintf("document.forms[%d].elements[%d].id = \"%s\";"
+		    "document.forms[%d].elements[%d].name = \"%s\";"
+		    "document.forms[%d].elements[%d].type = \"%s\";"
+		    "document.forms[%d].elements[%d].value = \"%s\";"
+		    "document.forms[%d].elements[%d].className = \"%s\";",
+		    i, j, id, i, j, n, i, j, t, i, j, v,  i, j, c)->ptr);
 
     if (*n != '\0' && check_property_name(n)) {
 	JSValue val = js_eval2(interp, Sprintf("document.forms[%d].%s;", i, n)->ptr);
@@ -347,17 +352,19 @@ update_forms(Buffer *buf, void *interp)
 	    if (fl->target != NULL)
 		t = fl->target;
 
-	    js_eval(interp, Sprintf("document.forms[%d].method = \"%s\";", i, m)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].action = \"%s\";", i, a)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].encoding = \"%s\";", i, e)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].name = \"%s\";", i, n)->ptr);
-	    js_eval(interp, Sprintf("document.forms[%d].id = \"%s\";", i, id)->ptr);
+	    js_eval(interp,
+		    Sprintf("document.forms[%d].method = \"%s\";"
+			    "document.forms[%d].action = \"%s\";"
+			    "document.forms[%d].encoding = \"%s\";"
+			    "document.forms[%d].name = \"%s\";"
+			    "document.forms[%d].id = \"%s\";"
+			    "document.forms[%d].target = \"%s\";",
+			    i, m, i, a, i, e, i, n, i, id, i, t)->ptr);
 	    /* fl->name might be '\0' (see process_input() in file.c) */
 	    if (*n != '\0' && check_property_name(n)) {
 		js_eval(interp, Sprintf("document.%s = document.forms[%d];", n, i)->ptr);
 		/* js_eval(interp, Sprintf("document.forms[\"%s\"] = document.forms[%d];", n, i)->ptr);*/
 	    }
-	    js_eval(interp, Sprintf("document.forms[%d].target = \"%s\";", i, t)->ptr);
 
 	    for (j = 0, fi = fl->item; fi != NULL; j++, fi = fi->next) {
 		put_form_element(interp, i, j, fi);
@@ -434,426 +441,6 @@ script_buf2js(Buffer *buf, void *interp)
 		"window.top = window;"
 		"window.window = window;"
 		""
-		"function w3m_initDocumentTree(doc) {"
-		"  doc.ownerDocument = doc;"
-		"  doc.documentElement = doc.createElement(\"HTML\");"
-		"  doc.firstElementChild = doc.lastElementChild = doc.scrollingElement = doc.documentElement;"
-		"  doc.children = doc.documentElement.children;"
-		"  doc.childNodes = doc.children; /* XXX NodeList */"
-		"  doc.childElementCount = 1;"
-		"  doc.documentElement.appendChild(doc.createElement(\"HEAD\"));"
-		"  doc.documentElement.appendChild(doc.createElement(\"BODY\"));"
-		"  doc.activeElement = doc.body;"
-		"}"
-		""
-		"function w3m_getElementById(element, id) {"
-		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (element.children[i].id === id) {"
-		"      return element.children[i];"
-		"    }"
-		"    let hit = w3m_getElementById(element.children[i], id);"
-		"    if (hit != null) {"
-		"      return hit;"
-		"    }"
-		"  }"
-		"  return null;"
-		"}"
-		""
-		"function w3m_getElementsByTagName(element, name, elements) {"
-		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (name === \"*\" ? element.children[i].nodeType == 1 :"
-		"                         element.children[i].tagName === name.toUpperCase()) {"
-		"      elements.push(element.children[i]);"
-		"    }"
-		"    w3m_getElementsByTagName(element.children[i], name, elements);"
-		"  }"
-		"}"
-		""
-		"function w3m_getElementsByName(element, name, elements) {"
-		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (element.children[i].name === name) {"
-		"      elements.push(element.children[i]);"
-		"    }"
-		"    w3m_getElementsByName(element.children[i], name, elements);"
-		"  }"
-		"}"
-		""
-		"function w3m_matchClassName(class1, class2) {"
-		"  let class1_array = class1.split(\" \");"
-		"  for (let c of class2.split(\" \")) {"
-		"    let i;"
-		"    for (i = 0; i < class1_array.length; i++) {"
-		"      if (c === class1_array[i]) {"
-		"        break;"
-		"      }"
-		"    }"
-		"    if (i == class1_array.length) {"
-		"      return false;"
-		"    }"
-		"  }"
-		"  return true;"
-		"}"
-		""
-		"function w3m_getElementsByClassName(element, name, elements) {"
-		"  for (let i = 0; i < element.children.length; i++) {"
-		"    if (element.children[i].className) {"
-		"      if (w3m_matchClassName(element.children[i].className, name)) {"
-		"        elements.push(element.children[i]);"
-		"      }"
-		"    }"
-		"    w3m_getElementsByClassName(element.children[i], name, elements);"
-		"  }"
-		"}"
-		""
-		"function w3m_parseSelector(selector) {"
-		"  let array = selector.split(/[ >+]+/);"
-		"  for (let i = 0; i < array.length; i++) {"
-		"    if (array[i].match((/^[>~+|]+$/)) != null) {"
-		"      console.log(\"Maybe unrecognized CSS selector: \" + array[i]);"
-		"    }"
-		"    let sel = new Object();"
-		"    sel.tag = array[i].match(/^[^.#\\[]+/); /* tag */"
-		"    if (sel.tag != null) {"
-		"      sel.tag = sel.tag[0].toUpperCase();"
-		"    }"
-		"    sel.class = array[i].match(/\\.[^.#\\[]+/); /* class */"
-		"    if (sel.class != null) {"
-		"      sel.class = sel.class[0].substring(1);"
-		"    }"
-		"    sel.id = array[i].match(/#[^.#\\[]+/); /* id */"
-		"    if (sel.id != null) {"
-		"      sel.id = sel.id[0].substring(1);"
-		"    }"
-		"    sel.attr_key = array[i].match(/\\[.*\\]/);"
-		"    if (sel.attr_key != null) {"
-		"      let attr = sel.attr_key[0].substring(1, sel.attr_key[0].length - 1);"
-		"      let attr_pair = attr.split(/[~|^$*]*=/);"
-		"      sel.attr_key = attr_pair[0];"
-		"      if (attr_pair.length > 1) {"
-		"        sel.attr_value = attr_pair[1].match(/[^\"]+/)[0];"
-		"      } else {"
-		"        sel.attr_value = null;"
-		"      }"
-		"    } else {"
-		"      sel.attr_value = null;"
-		"    }"
-		"    array[i] = sel;"
-		"  }"
-		"  return array;"
-		"}"
-		""
-		"function w3m_querySelectorAllIntern(element, sel, elements) {"
-		"  if (sel.tag) {"
-		"    w3m_getElementsByTagName(element, sel.tag, elements);"
-		"  } else if (sel.class) {"
-		"    w3m_getElementsByClassName(element, sel.class, elements);"
-		"  } else if (sel.id) {"
-		"    let e = w3m_getElementById(element, sel.id);"
-		"    if (e) {"
-		"      elements.push(e);"
-		"    }"
-		"  }"
-		"}"
-		""
-		"function w3m_matchAttr(element, attr_key, attr_value) {"
-		"  if (element[attr_key]) {"
-		"    if (attr_value == null || attr_value == element[attr_key]) {"
-		"      return true;"
-		"    }"
-		"  }"
-		"  return false;"
-		"}"
-		""
-		"function w3m_querySelectorAll(element, sels, elements) {"
-		"  if (sels[0]) {"
-		"    for (let i = 0; i < element.children.length; i++) {"
-		"      if ((sels[0].tag == null || sels[0].tag == element.children[i].tagName) &&"
-		"          (sels[0].class == null ||"
-		"           w3m_matchClassName(element.children[i].className, sels[0].class)) &&"
-		"          (sels[0].id == null || sels[0].id == element.children[i].id) &&"
-		"          (sels[0].attr_key == null ||"
-		"           w3m_matchAttr(element.children[i], sels[0].attr_key, sels[0].attr_value))) {"
-	        "        if (sels[1]) {"
-		"          w3m_querySelectorAllIntern(element.children[i], sels[1], elements);"
-		"        } else {"
-		"          elements.push(element.children[i]);"
-		"        }"
-		"      }"
-		"      w3m_querySelectorAll(element.children[i], sels, elements);"
-		"    }"
-		"  }"
-		"}"
-		""
-		"function w3m_initDocument(doc) {"
-		"  doc.nodeName = \"#document\";"
-		"  doc.compatMode = \"CSS1Compat\";"
-		"  doc.nodeType = 9; /* DOCUMENT_NODE */"
-		"  doc.referrer = \"\";"
-		"  doc.readyState = \"complete\";"
-		"  doc.visibilityState = \"visible\";" /* XXX */
-		"  doc.activeElement = null;"
-		"  doc.defaultView = window;"
-		"  doc.designMode = \"off\";"
-		"  doc.dir = \"ltr\";"
-		"  doc.hidden = false;"
-		"  doc.fullscreenEnabled = false;"
-		""
-	        "  doc.createElement = function(tagname) {"
-		"    tagname = tagname.toUpperCase();"
-		"    let element;"
-		"    if (tagname === \"FORM\") {"
-		"      element = new HTMLFormElement();"
-		"    } else if (tagname === \"IMG\") {"
-		"      element = new HTMLImageElement();"
-		"    } else if (tagname === \"SELECT\") {"
-		"      element = new HTMLSelectElement();"
-		"    } else if (tagname === \"SCRIPT\") {"
-		"      element = new HTMLScriptElement();"
-		"    } else if (tagname === \"CANVAS\") {"
-		"      element = new HTMLCanvasElement();"
-		"    } else if (tagname === \"SVG\") {"
-		"      element = new SVGElement();"
-		"    } else {"
-		"      element = new HTMLElement(tagname);"
-		"    }"
-		"    element.ownerDocument = this;"
-		"    return element;"
-		"  };"
-		""
-		"  Object.defineProperty(doc, 'body', {"
-		"    get: function() {"
-		"      for (let i = 0; i < this.documentElement.children.length; i++) {"
-		"        if (this.documentElement.children[i].tagName === \"BODY\") {"
-		"          return this.documentElement.children[i];"
-		"        }"
-		"      }"
-		"      return null;"
-		"    },"
-		"    set: function(value) {"
-		"      for (let i = 0; i < this.documentElement.children.length; i++) {"
-		"        if (this.documentElement.children[i].tagName === \"BODY\") {"
-		"          this.removeChild(this.documentElement.children[i]);"
-		"          this.appendChild(value);"
-		"        }"
-		"      }"
-		"    }"
-		"  });"
-		"  Object.defineProperty(doc, 'head', {"
-		"    get: function() {"
-		"      for (let i = 0; i < this.documentElement.children.length; i++) {"
-		"        if (this.documentElement.children[i].tagName === \"HEAD\") {"
-		"          return this.documentElement.children[i];"
-		"        }"
-		"      }"
-		"      return null;"
-		"    },"
-		"    set: function(value) {"
-		"      for (let i = 0; i < this.documentElement.children.length; i++) {"
-		"        if (this.documentElement.children[i].tagName === \"HEAD\") {"
-		"          this.removeChild(this.documentElement.children[i]);"
-		"          this.appendChild(value);"
-		"        }"
-		"      }"
-		"    }"
-		"  });"
-		""
-		"  doc.createDocumentFragment = function() {"
-		"    let doc = new Document();"
-		"    w3m_initDocument(doc);"
-		"    w3m_initDocumentTree(doc);"
-		"    doc.nodeName = \"#document-fragment\";"
-		"    doc.nodeType = 11; /* DOCUMENT_FRAGMENT_NODE */"
-		"    return doc;"
-		"  };"
-		""
-		"  doc.implementation = new Object();"
-		""
-		"  /* XXX */"
-		"  doc.implementation.createDocument ="
-		"  doc.implementation.createHTMLDocument = function() {"
-		"    let doc = new Document();"
-		"    w3m_initDocument(doc);"
-		"    w3m_initDocumentTree(doc);"
-		"    return doc;"
-		"  };"
-		""
-		"  doc.implementation.createDocumentType ="
-		"    function(qualifiedNamedStr, publicId, systemId) {"
-		"      let type = new Node(\"\");"
-		"      type.publicId = publicId;"
-		"      type.systemId = systemId;"
-		"      type.internalSubset = null;"
-		"      type.name = \"html\";"
-		"      /* XXX type.notations */"
-		"      return type;"
-		"    };"
-		""
-		"  doc.createElementNS = function(namespaceURI, tagname) {"
-		"    let element = this.createElement(tagname);"
-		"    element.namespaceURI = namespaceURI;"
-		"    return element;"
-		"  };"
-		""
-		"  /* see element_text_content_set() in js_html.c */"
-	        "  doc.createTextNode = function(text) {"
-		"    let element = new HTMLElement(\"#text\");"
-		"    element.nodeValue = text;"
-		"    element.data = text; /* CharacterData.data */"
-		"    element.ownerDocument = this;"
-		"    return element;"
-		"  };"
-		""
-	        "  doc.createComment = function(data) {"
-		"    let element = new HTMLElement(\"#comment\");"
-		"    element.nodeValue = data;"
-		"    element.data = data; /* CharacterData.data */"
-		"    element.ownerDocument = this;"
-		"    return element;"
-		"  };"
-		""
-		"  doc.createAttribute = function(name) {"
-		"    let attr = new Object();"
-		"    attr.name = attr.localName = name;"
-		"    attr.specified = true;"
-		"    return attr;"
-		"  };"
-		""
-		"  doc.getElementById = function(id) {"
-		"    let hit;"
-		"    /*"
-		"     * Search document.forms first of all because document.children"
-		"     * may not have all form elements."
-		"     * (see create_tree() in js_html.c)"
-		"     */"
-		"    for (let i = 0; i < this.forms.length; i++) {"
-		"      hit = w3m_getElementById(this.forms[i], id);"
-		"      if (hit) {"
-		"        return hit;"
-		"      }"
-		"    }"
-		"    hit = w3m_getElementById(this, id);"
-#ifdef USE_LIBXML2
-		"    return hit;"
-#else
-		"    if (hit != null) {"
-		"      return hit;"
-		"    }"
-		"    let element = this.createElement(\"SPAN\");"
-		"    element.id = id;"
-		"    element.value = \"\";"
-		"    return this.body.appendChild(element);"
-#endif
-		"  };"
-		""
-		"  doc.getElementsByTagName = function(name) {"
-		"    name = name.toUpperCase();"
-		"    if (name === \"FORM\") {"
-		"      if (!this.forms) {"
-		"        this.forms = document.forms /* new HTMLCollection() */;"
-		"      }"
-		"      return this.forms;"
-		"    } else {"
-		"      let elements = new HTMLCollection();"
-		"      if (name === \"HTML\") {"
-		"        elements.push(this.documentElement);"
-		"      } else {"
-		"        w3m_getElementsByTagName(this, name, elements);"
-#ifndef USE_LIBXML2
-		"        if (elements.length == 0) {"
-		"          if (name === \"*\") {"
-		"            name = \"SPAN\";"
-		"          }"
-		"          let element = this.createElement(name);"
-		"          element.value = \"\";"
-		"          this.body.appendChild(element);"
-		"          elements.push(element);"
-		"        }"
-#endif
-		"      }"
-		"      return elements;"
-		"    }"
-		"  };"
-		""
-		"  doc.getElementsByName = function(name) {"
-		"    let elements = new HTMLCollection();"
-		"    /*"
-		"     * document.forms is not searched because some of them are added"
-		"     * to document.children (see create_tree() in js_html.c) and it"
-		"     * is difficult to identify them by name attribute."
-		"     */"
-		"    w3m_getElementsByName(document, name, elements);"
-#ifndef USE_LIBXML2
-		"    if (elements.length == 0) {"
-		"      let element = this.createElement(\"SPAN\");"
-		"      element.name = name;"
-		"      element.value = \"\";"
-		"      this.body.appendChild(element);"
-		"      elements.push(element);"
-		"    }"
-#endif
-		"    return elements;"
-		"  };"
-		""
-		"  doc.getElementsByClassName = function(name) {"
-		"    let elements = new HTMLCollection();"
-		"    w3m_getElementsByClassName(this, name, elements);"
-#ifndef USE_LIBXML2
-		"    if (elements.length == 0) {"
-		"      let element = this.createElement(\"SPAN\");"
-		"      element.className = name;"
-		"      element.value = \"\";"
-		"      this.body.appendChild(element);"
-		"      elements.push(element);"
-		"    }"
-#endif
-		"    return elements;"
-		"  };"
-		""
-		"  doc.querySelectorAll = function(sel) {"
-		"    let elements = new NodeList();"
-		"    for (let s of sel.split(/ *,/)) {"
-		"      /* XXX */"
-		"      if (s.toUpperCase() === \"HTML\") {"
-		"        elements.push(this.documentElement);"
-		"      } else {"
-		"        w3m_querySelectorAll(this, w3m_parseSelector(s), elements);"
-		"      }"
-		"    }"
-#ifndef USE_LIBXML2
-		"    if (elements.length == 0) {"
-		"        let element = this.createElement(\"SPAN\");"
-		"        element.value = \"\";"
-		"        elements.push(this.body.appendChild(element));"
-		"    }"
-#endif
-		"    return elements;"
-		"  };"
-		""
-		"  doc.querySelector = function(sel) {"
-		"    let elements = this.querySelectorAll(sel);"
-		"    if (elements.length == 0) {"
-		"      return null;"
-		"    } else {"
-		"      return elements[0];"
-		"    }"
-		"  };"
-		""
-		"  doc.createEvent = function() {"
-		"    console.log(\"XXX: Document.createEvent\");"
-		"    return new Object();"
-		"  };"
-		""
-		"  doc.createRange = function() {"
-		"    let r = new Range();"
-		"    r.setStart(this, 0);"
-		"    r.setEnd(this, 0);"
-		"    return r;"
-		"  };"
-		""
-		"  doc.createNodeIterator = function(root, ...args) {"
-		"    return new NodeIterator(root, args[0], args[1]);"
-		"  };"
-		"}"
 		""
 		"var document = new Document();"
 		"w3m_initDocument(document);"
@@ -918,186 +505,7 @@ script_buf2js(Buffer *buf, void *interp)
 		"}"
 		""
 		"var dataTransfer = new Object();"
-		"dataTransfer.files = new FileList();"
-		""
-		"function w3m_textNodesToStr(node) {"
-		"  let str = \"\";"
-		"  for (let i = 0; i < node.childNodes.length; i++) {"
-		"    if (node.childNodes[i].nodeName === \"#text\" &&"
-		"        node.childNodes[i].nodeValue != null &&"
-		"        node.childNodes[i].isModified == true) {"
-		"      if (node.name != undefined) {"
-		"        str += node.name;"
-		"        str += \"=\";"
-		"      } else if (node.id != undefined) {"
-		"        str += node.id;"
-		"        str += \"=\";"
-		"      }"
-		"      str += node.childNodes[i].nodeValue;"
-		"      str += \" \";"
-		"      node.childNodes[i].isModified = false;"
-		"    }"
-		"    str += w3m_textNodesToStr(node.childNodes[i]);"
-		"  }"
-		"  return str;"
-		"}"
-		""
-		"const w3m_base64ConvTable ="
-		"  \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";"
-		"function w3m_btoaChar(i) {"
-		"  if (i >= 0 && i < 64) {"
-		"    return w3m_base64ConvTable[i];"
-		"  }"
-		"  return undefined;"
-		"}"
-		"function w3m_atobIndex(chr) {"
-		"  let i = w3m_base64ConvTable.indexOf(chr);"
-		"  return i < 0 ? undefined : i;"
-		"}"
-		"function atob(data) {"
-		"  data = `${data}`;"
-		"  data = data.replace(/[ \\t\\n\\f\\r]/g, \"\");"
-		"  if (data.length % 4 === 0) {"
-		"    data = data.replace(/==?$/, "");"
-		"  }"
-		"  if (data.length % 4 === 1 || /[^+/0-9A-Za-z]/.test(data)) {"
-		"    return null;"
-		"  }"
-		"  let out = \"\";"
-		"  let buf = 0;"
-		"  let nbits = 0;"
-		"  for (let i = 0; i < data.length; i++) {"
-		"    buf <<= 6;"
-		"    buf |= w3m_atobIndex(data[i]);"
-		"    nbits += 6;"
-		"    if (nbits === 24) {"
-		"      out += String.fromCharCode((buf & 0xff0000) >> 16);"
-	        "      out += String.fromCharCode((buf & 0xff00) >> 8);"
-		"      out += String.fromCharCode(buf & 0xff);"
-		"      buf = nbits = 0;"
-		"    }"
-	        "  }"
-	        "  if (nbits === 12) {"
-		"    buf >>= 4;"
-		"    out += String.fromCharCode(buf);"
-		"  } else if (nbits === 18) {"
-		"    buf >>= 2;"
-		"    out += String.fromCharCode((buf & 0xff00) >> 8);"
-		"    out += String.fromCharCode(buf & 0xff);"
-	        "  }"
-	        "  return out;"
-	        "}"
-		"function btoa(data) {"
-		"  data = `${data}`;"
-		"  for (let i = 0; i < data.length; i++) {"
-		"    if (data.charCodeAt(i) > 255) {"
-		"      return null;"
-		"    }"
-		"  }"
-		"  let out = \"\";"
-		"  for (let i = 0; i < data.length; i += 3) {"
-		"    let set = [undefined, undefined, undefined, undefined];"
-		"    set[0] = data.charCodeAt(i) >> 2;"
-		"    set[1] = (data.charCodeAt(i) & 0x03) << 4;"
-		"    if (data.length > i + 1) {"
-		"      set[1] |= data.charCodeAt(i + 1) >> 4;"
-		"      set[2] = (data.charCodeAt(i + 1) & 0x0f) << 2;"
-		"    }"
-		"    if (data.length > i + 2) {"
-		"      set[2] |= data.charCodeAt(i + 2) >> 6;"
-		"      set[3] = data.charCodeAt(i + 2) & 0x3f;"
-		"    }"
-		"    for (let j = 0; j < set.length; j++) {"
-		"      if (typeof set[j] === \"undefined\") {"
-		"        out += \"=\";"
-		"      } else {"
-		"        out += w3m_btoaChar(set[j]);"
-		"      }"
-		"    }"
-		"  }"
-		"  return out;"
-	        "}"
-		""
-		"function w3m_onload(obj) {"
-		"  if (obj.w3m_events && obj.w3m_events.length > 0) {"
-		"    /*"
-		"     * 'i = 0; ...;i++' falls infinite loop if a listener calls addEventListener()."
-		"     * The case of calling removeEventListener() is not considered."
-		"     */"
-		"    for (let i = obj.w3m_events.length - 1; i >= 0; i--) {"
-		"      if (obj.w3m_events[i].type === \"loadstart\" ||"
-		"          obj.w3m_events[i].type === \"load\" ||"
-		"          obj.w3m_events[i].type === \"loadend\" ||"
-		"          obj.w3m_events[i].type === \"DOMContentLoaded\" ||"
-		"          obj.w3m_events[i].type === \"visibilitychange\") {"
-		"        if (typeof obj.w3m_events[i].listener === \"function\") {"
-		"          obj.w3m_events[i].listener(obj.w3m_events[i]);"
-		"        } else if (obj.w3m_events[i].listener.handleEvent &&"
-		"                   typeof obj.w3m_events[i].listener.handleEvent === \"function\") {"
-		"          obj.w3m_events[i].listener.handleEvent(obj.w3m_events[i]);"
-		"        }"
-		"        obj.w3m_events.splice(i, 1);"
-		"      }"
-		"    }"
-		"  }"
-		"  if (obj.onloadstart) {"
-		"    if (typeof obj.onloadstart === \"string\") {"
-		"      try {"
-		"        eval(obj.onloadstart);"
-		"      } catch (e) {"
-		"        console.log(\"Error in onloadstart: \" + e.message);"
-		"      }"
-		"    } else if (typeof obj.onloadstart === \"function\") {"
-		"      obj.onloadstart();"
-		"    }"
-		"    obj.onloadstart = undefined;"
-		"  }"
-		"  if (obj.onload) {"
-		"    if (typeof obj.onload === \"string\") {"
-		"      try {"
-		"        eval(obj.onload);"
-		"      } catch (e) {"
-		"        console.log(\"Error in onload: \" + e.message);"
-		"        console.log(obj.onload);"
-		"      }"
-		"    } else if (typeof obj.onload === \"function\") {"
-		"      obj.onload();"
-		"    }"
-		"    obj.onload = undefined;"
-		"  }"
-		"  if (obj.onloadend) {"
-		"    if (typeof obj.onloadend === \"string\") {"
-		"      try {"
-		"        eval(obj.onloadend);"
-		"      } catch (e) {"
-		"        console.log(\"Error in onloadend: \" + e.message);"
-		"      }"
-		"    } else if (typeof obj.onloadend === \"function\") {"
-		"      obj.onloadend();"
-		"    }"
-		"    obj.onloadend = undefined;"
-		"  }"
-		"}"
-		"function w3m_element_onload(element) {"
-		"  w3m_onload(element);"
-		"  for (let i = 0; i < element.children.length; i++) {"
-		"    w3m_onload(element.children[i]);"
-		"  }"
-		"}"
-		"function w3m_reset_onload(obj) {"
-		"  if (obj.w3m_events) {"
-		"    obj.w3m_events = undefined;"
-		"  }"
-		"  if (obj.onloadstart) {"
-		"    obj.w3m_onloadstart = undefined;"
-		"  }"
-		"  if (obj.onload) {"
-		"    obj.w3m_onload = undefined;"
-		"  }"
-		"  if (obj.onloadend) {"
-		"    obj.w3m_onloadend = undefined;"
-		"  }"
-		"}");
+		"dataTransfer.files = new FileList();");
 
 	js_eval(interp, Sprintf("var location = new Location(\"%s\");",
 				parsedURL2Str(&buf->currentURL)->ptr)->ptr);
@@ -1191,11 +599,12 @@ script_buf2js(Buffer *buf, void *interp)
 		"w3m_reset_onload(document);");
     }
 
-    js_eval(interp, Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;", buf->COLS * term_ppc)->ptr);
-    js_eval(interp, Sprintf("screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;", buf->LINES * term_ppl)->ptr);
-    js_eval(interp, "window.scrollX = window.scrollY = document.body.scrollLeft = document.body.scrollTop = document.documentElement.scrollLeft = document.documentElement.scrollTop = 0;");
+    js_eval(interp,
+	    Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;"
+		    "screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;"
+		    "window.scrollX = window.scrollY = document.body.scrollLeft = document.body.scrollTop = document.documentElement.scrollLeft = document.documentElement.scrollTop = 0;",
+		    buf->COLS * term_ppc, buf->LINES * term_ppl)->ptr);
 
-    js_eval(interp, "document.scripts = new HTMLCollection();");
 #ifndef USE_LIBXML2
     if (buf->scripts != NULL) {
 	ListItem *l;
@@ -1214,9 +623,6 @@ script_buf2js(Buffer *buf, void *interp)
 		"}");
     }
 #endif
-
-    js_eval(interp, "document.images = new HTMLCollection();");
-    js_eval(interp, "document.links = new HTMLCollection();");
 
     update_forms(buf, interp);
 }
@@ -1641,6 +1047,7 @@ script_js2buf(Buffer *buf, void *interp)
     JSValue value;
     char *cstr;
     Str ret;
+    Str str;
 
     value = js_eval2(interp, "window;");
     if (js_is_object(value)) {
@@ -1731,7 +1138,6 @@ script_js2buf(Buffer *buf, void *interp)
 	    value = js_eval2(interp, Sprintf("document.forms[%d];", i)->ptr);
 	    if (js_is_object(value)) {
 		HTMLFormElementState *state = js_get_state(value, HTMLFormElementClassID);
-		Str str;
 		int j;
 		FormItemList *fi;
 		JSValue value2;
@@ -1835,7 +1241,7 @@ script_js2buf(Buffer *buf, void *interp)
     }
 
     value = js_eval2(interp, "w3m_textNodesToStr(document);");
-    Str str = js_get_str(interp, value);
+    str = js_get_str(interp, value);
     if (str != NULL && *str->ptr != '\0') {
 #ifdef SCRIPT_DEBUG
 	FILE *fp = fopen("scriptlog.txt", "a");
@@ -1851,7 +1257,7 @@ script_js2buf(Buffer *buf, void *interp)
     }
 
     ret = NULL;
-    value = js_eval2(interp, "document;");
+    value = js_get_document(interp);
     if (js_is_object(value)) {
 	DocumentState *state = js_get_state(value, DocumentClassID);
 
@@ -1881,18 +1287,8 @@ script_js2buf(Buffer *buf, void *interp)
 	    state->write = NULL;
 	}
     }
-    js_free(interp, value);
 
     return ret;
-}
-
-static void
-onload_event(void *interp)
-{
-    js_eval(interp,
-	    "w3m_element_onload(document);"
-	    "w3m_onload(window);");
-    trigger_interval(1);
 }
 
 static int
@@ -1955,7 +1351,8 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
     }
 
     if (onload) {
-	onload_event(interp);
+	js_eval(interp, "w3m_element_onload(document); w3m_onload(window);");
+	js_trigger_interval(buf, 1, NULL);
     }
 
     if (js2buf) {
@@ -1981,6 +1378,15 @@ script_js_close(Buffer *buf)
     }
 }
 #endif
+
+void trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
+{
+    if (buf->script_interp) {
+	if (js_trigger_interval(buf, msec, buf2js ? update_forms : NULL) && js2buf) {
+	    script_js2buf(buf, buf->script_interp);
+	}
+    }
+}
 
 int
 script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int onload,
