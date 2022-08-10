@@ -251,7 +251,7 @@ extern void script_close(Buffer *buf);
 extern void process_html_str(Buffer *buf, char *html_str);
 extern void jWindowOpen(Buffer *buf, char *url, char *target);
 extern int trigger_click_event(Buffer *buf, FormItemList *fi);
-extern void trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf);
+extern int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf);
 #endif
 extern Str process_form(struct parsed_tag *tag);
 extern Str process_n_form(void);

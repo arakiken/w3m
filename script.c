@@ -1300,10 +1300,6 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
     JSValue ret;
     char *p;
 
-    if (buf == NULL) {
-	return 0;
-    }
-
     if (buf->script_interp != NULL) {
 	interp = buf->script_interp;
     } else {
@@ -1379,13 +1375,26 @@ script_js_close(Buffer *buf)
 }
 #endif
 
-void trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
+int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 {
-    if (buf->script_interp) {
-	if (js_trigger_interval(buf, msec, buf2js ? update_forms : NULL) && js2buf) {
-	    script_js2buf(buf, buf->script_interp);
-	}
+    int ret;
+
+    if (buf->script_interp == NULL) {
+	return 0;
     }
+
+    ret = js_trigger_interval(buf, msec, buf2js ? update_forms : NULL);
+    if ((ret && js2buf) || js2buf > 0) {
+	script_js2buf(buf, buf->script_interp);
+    } else if (ret) {
+	/*
+	 * Force script_js2buf() at the next trigger_interval()
+	 * regardless of the return value of js_trigger_interval().
+	 */
+	return 1;
+    }
+
+    return 0;
 }
 
 int
@@ -1400,17 +1409,14 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int o
 	buf->location = NULL;
     if (! lang || ! script)
 	return 0;
-    if (buf->script_lang) {
-	if (strcasecmp(lang, buf->script_lang))
-	    return 0;
-    } else
-	buf->script_lang = lang;
 
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
-	! strcasecmp(lang, "jscript"))
+	! strcasecmp(lang, "jscript")) {
+	buf->script_lang = lang;
+
 	return script_js_eval(buf, script, buf2js, js2buf, onload, fl, output);
-    else
+    } else
 #endif
 	return 0;
 }

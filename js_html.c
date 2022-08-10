@@ -54,6 +54,7 @@ int term_ppl;
 #endif
 #include <libxml/HTMLparser.h>
 #include <libxml/HTMLtree.h>
+static void create_dtd(JSContext *ctx, xmlDtd *dtd, JSValue doc);
 static void create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml);
 #endif
 
@@ -149,6 +150,8 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     JSValue event;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "addEventListener: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -213,6 +216,8 @@ remove_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     int i;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "removeEventListener: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -276,6 +281,8 @@ dispatch_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     const char *str;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "dispatchEvent: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -374,11 +381,15 @@ window_alert(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     size_t len;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Window.alert: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
     str = JS_ToCStringLen(ctx, &len, argv[0]);
     if (!str) {
+	JS_ThrowTypeError(ctx, "Window.alert: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
     alert_msg = allocStr(str, len);
@@ -394,11 +405,15 @@ window_confirm(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     char *ans;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Window.confirm: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
     str = JS_ToCString(ctx, argv[0]);
     if (!str) {
+	JS_ThrowTypeError(ctx, "Window.alert: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
     ans = inputChar(Sprintf("%s (y/n)", u2ic(str))->ptr);
@@ -415,6 +430,8 @@ static JSValue
 window_get_computed_style(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Window.getComputedStyle: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -444,6 +461,8 @@ window_match_media(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     JSValue flag = JS_FALSE;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Window.matchMedia: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -514,6 +533,8 @@ location_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     bzero(state, sizeof(LocationState));
     if (argc > 0) {
 	if ((state->url = get_str(ctx, argv[0])) == NULL) {
+	    JS_ThrowTypeError(ctx, "Location constructor: 1st argument is not String.");
+
 	    return JS_EXCEPTION;
 	}
 
@@ -550,6 +571,8 @@ location_replace(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     Str str;
 
     if (argc < 1 || (str = get_str(ctx, argv[0])) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.replace: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -585,6 +608,8 @@ location_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     Str str;
 
     if ((str = get_str(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.href: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -648,6 +673,8 @@ location_protocol_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *p;
 
     if ((s = get_str(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.protocol: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -682,6 +709,8 @@ location_host_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *p, *q;
 
     if ((p = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.host: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -717,6 +746,8 @@ location_hostname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *str;
 
     if ((str = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.hostname: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -756,6 +787,8 @@ location_port_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 	JS_ToInt32(ctx, &i, val);
 	state->pu.port = i;
     } else {
+	JS_ThrowTypeError(ctx, "Location.host: 1st argument is neither String nor Number.");
+
 	return JS_EXCEPTION;
     }
     state->url = parsedURL2Str(&state->pu);
@@ -784,6 +817,8 @@ location_pathname_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *str;
 
     if ((str = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.pathname: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -851,6 +886,8 @@ location_search_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     JSValue params;
 
     if ((query = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.search: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -887,6 +924,8 @@ location_hash_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *str;
 
     if ((str = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.hash: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -917,6 +956,8 @@ location_username_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *str;
 
     if ((str = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.username: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -947,6 +988,8 @@ location_password_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     char *str;
 
     if ((str = get_cstr(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Location.password: 1st argument is not String.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1244,6 +1287,8 @@ html_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *ar
     JSValue obj;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "HTMLElement constructor: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1348,6 +1393,8 @@ svg_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *arg
 
     /* XXX */
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "SVGElement constructor: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1367,6 +1414,8 @@ element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     JSValue obj;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "Element constructor: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1377,7 +1426,7 @@ element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 }
 
 static JSValue
-element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv);
+node_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv);
 
 static void
 add_node_to(JSContext *ctx, JSValue node, char *array_name)
@@ -1414,8 +1463,20 @@ remove_node_from(JSContext *ctx, JSValue node, char *array_name)
 }
 
 static JSValue
-element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc,
-				      JSValueConst *argv, int append_child)
+dom_exception_new(JSContext *ctx, int code, const char *name, const char *message)
+{
+    JSValue e = JS_Eval(ctx, "new DOMException();", 19, "<input>", EVAL_FLAG);
+
+    JS_SetPropertyStr(ctx, e, "code", JS_NewInt32(ctx, code));
+    JS_SetPropertyStr(ctx, e, "name", JS_NewString(ctx, name));
+    JS_SetPropertyStr(ctx, e, "message", JS_NewString(ctx, message));
+
+    return e;
+}
+
+static JSValue
+node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc,
+				   JSValueConst *argv, int append_child)
 {
     JSValue val;
     JSValue doc;
@@ -1431,10 +1492,14 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 
     if (append_child) {
 	if (argc < 1) {
+	    JS_ThrowTypeError(ctx, "Node.appendChild: Too few arguments.");
+
 	    return JS_EXCEPTION;
 	}
     } else {
 	if (argc < 2) {
+	    JS_ThrowTypeError(ctx, "Node.insertBefore: Too few arguments.");
+
 	    return JS_EXCEPTION;
 	} else if (JS_IsNull(argv[1])) {
 	    append_child = 1;
@@ -1443,7 +1508,7 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 
     val = JS_GetPropertyStr(ctx, argv[0], "parentNode");
     if (JS_IsObject(val)) {
-	JS_FreeValue(ctx, element_remove_child(ctx, val, 1, argv));
+	JS_FreeValue(ctx, node_remove_child(ctx, val, 1, argv));
     }
     JS_FreeValue(ctx, val);
 
@@ -1452,7 +1517,8 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 	val = JS_GetPropertyStr(ctx, doc, "documentElement");
 	if (JS_VALUE_GET_PTR(val) == JS_VALUE_GET_PTR(argv[0])) {
 	    JS_FreeValue(ctx, val);
-	    log_msg("appendChild: HIERARCHY_REQUEST_ERR");
+	    JS_Throw(ctx, dom_exception_new(ctx, 3, "HierarchyRequestError",
+					    "appendChild: child == documentElement"));
 
 	    return JS_EXCEPTION;
 	}
@@ -1562,30 +1628,34 @@ element_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int a
 
 	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
     } else {
+	JS_ThrowTypeError(ctx, "Node.appendChild: Illegal argument.");
+
 	return JS_EXCEPTION;
     }
 }
 
 static JSValue
-element_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return element_append_child_or_insert_before(ctx, jsThis, argc, argv, 1);
+    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 1);
 }
 
 static JSValue
-element_insert_before(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_insert_before(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return element_append_child_or_insert_before(ctx, jsThis, argc, argv, 0);
+    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 0);
 }
 
 static JSValue
-element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue children, prop, argv2[2];
     int removed = 0;
     char *tag;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Node.removeChild: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1625,23 +1695,25 @@ element_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 #endif
     }
 
-#if 0
-    /* XXX */
     if (!removed) {
+	JS_Throw(ctx, dom_exception_new(ctx, 8, "NotFoundError",
+					"removeChild: child is not found."));
+
 	return JS_EXCEPTION;
     }
-#endif
 
     return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
 }
 
 static JSValue
-element_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_replace_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue children, prop, idx, ret;
     int i;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "Node.replaceChild: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1680,7 +1752,11 @@ static JSValue element_get_attribute(JSContext *ctx, JSValueConst jsThis, int ar
 static JSValue
 element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
+    log_msg("XXX: Element.removeAttribute");
+
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Node.removeAttribute: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1693,6 +1769,8 @@ element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JSValue ret = JS_FALSE;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Node.hasAttribute: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1742,7 +1820,7 @@ element_get_client_rects(JSContext *ctx, JSValueConst jsThis, int argc, JSValueC
 }
 
 static JSValue
-element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     const char script[] = "if (this.childNodes.length == 0) { true; } else { false; }";
     return backtrace(ctx, script,
@@ -1750,7 +1828,7 @@ element_has_child_nodes(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
 }
 
 static JSValue
-element_first_child_get(JSContext *ctx, JSValueConst jsThis)
+node_first_child_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
 	"if (this.childNodes.length > 0) {"
@@ -1764,7 +1842,7 @@ element_first_child_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
-element_last_child_get(JSContext *ctx, JSValueConst jsThis)
+node_last_child_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
 	"if (this.childNodes.length > 0) {"
@@ -1778,7 +1856,7 @@ element_last_child_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
-element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
+node_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
 	"if (this.parentNode && this.parentNode.childNodes.length >= 2) {"
@@ -1799,7 +1877,7 @@ element_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
-element_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
+node_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
 	"if (this.parentNode) {"
@@ -1830,6 +1908,8 @@ static JSValue
 element_matches(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Element.matches: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1848,7 +1928,7 @@ element_attributes_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
-element_compare_document_position(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_compare_document_position(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     log_msg("XXX: Node.compareDocumentPosition");
     return JS_NewInt32(ctx, 4); /* DOCUMENT_POSITION_FOLLOWING */
@@ -1884,6 +1964,8 @@ element_get_elements_by_tag_name(JSContext *ctx, JSValueConst jsThis, int argc, 
     char *script;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "Element.getElementsByTagName: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1915,6 +1997,8 @@ element_get_elements_by_class_name(JSContext *ctx, JSValueConst jsThis,
     char *script;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "Element.getElementsByClassName: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -1939,7 +2023,7 @@ element_get_elements_by_class_name(JSContext *ctx, JSValueConst jsThis,
 }
 
 static JSValue
-element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc >= 1 && JS_ToBool(ctx, argv[0])) {
 	const char script[] =
@@ -1968,7 +2052,7 @@ element_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 }
 
 static JSValue
-element_text_content_get(JSContext *ctx, JSValueConst jsThis)
+node_text_content_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
 	"function w3m_getChildrenText(element) {"
@@ -2007,8 +2091,16 @@ static void
 create_tree_from_html(JSContext *ctx, JSValue parent, const char *html) {
     xmlDoc *doc = htmlReadMemory(html, strlen(html), "", "utf-8",
 				 HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
-				 HTML_PARSE_NOWARNING /*| HTML_PARSE_NOIMPLIED*/);
+				 HTML_PARSE_NOWARNING | HTML_PARSE_NODEFDTD
+				 /*| HTML_PARSE_NOIMPLIED*/);
+    xmlDtd *dtd = dtd = xmlGetIntSubset(doc);
     xmlNode *node;
+
+    if (dtd) {
+	JSValue val = JS_GetPropertyStr(ctx, parent, "ownerDocument");
+	create_dtd(ctx, dtd, val);
+	JS_FreeValue(ctx, val);
+    }
     /*
      * <link/><table></table><a href='/a'>a</a><input type='checkbox'/>
      * -> With HTML_PARSE_NOIMPLIED
@@ -2030,7 +2122,7 @@ create_tree_from_html(JSContext *ctx, JSValue parent, const char *html) {
 #endif
 
 static JSValue
-element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
+node_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
     JSValue p_nodename = JS_GetPropertyStr(ctx, jsThis, "nodeName");
     const char *str = JS_ToCString(ctx, p_nodename);
@@ -2059,7 +2151,7 @@ element_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 	JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, val));
 	JS_SetPropertyStr(ctx, element, "isModified", JS_TRUE);
 
-	JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+	JS_FreeValue(ctx, node_append_child(ctx, jsThis, 1, &element));
 
 	JS_FreeValue(ctx, nodename);
 	JS_FreeValue(ctx, element);
@@ -2081,6 +2173,8 @@ node_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     JSValue obj;
 
     if (argc < 1 || !JS_IsString(argv[0])) {
+	JS_ThrowTypeError(ctx, "Node constructor: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -2122,9 +2216,11 @@ contains(JSContext *ctx, JSValueConst jsThis, JSValueConst other)
 }
 
 static JSValue
-element_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+node_contains(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Node.contains: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -2140,6 +2236,8 @@ element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSVa
     JSValue parent;
 
     if (argc < 2 || (pos = JS_ToCString(ctx, argv[0])) == NULL) {
+	JS_ThrowTypeError(ctx, "Element.insertAdjacentHtml: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
     if (strcmp(pos, "beforebegin") == 0 || strcmp(pos, "afterend") == 0) {
@@ -2147,6 +2245,8 @@ element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSVa
     } else if (strcmp(pos, "afterbegin") == 0 || strcmp(pos, "beforeend") == 0) {
 	parent = JS_DupValue(ctx, jsThis); /* XXX */
     } else {
+	JS_ThrowTypeError(ctx, "Element.insertAdjacentHtml: Illegal argument.");
+
 	JS_FreeCString(ctx, pos);
 	return JS_EXCEPTION;
     }
@@ -2160,13 +2260,15 @@ element_insert_adjacent_html(JSContext *ctx, JSValueConst jsThis, int argc, JSVa
     JS_FreeCString(ctx, pos);
 #else
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "Element.insertAdjacentHtml: Too few arguments.");
+
 	return JS_EXCEPTION;
     } else {
 	JSValue nodename = JS_NewStringLen(ctx, "#text", 5);
 	JSValue element = element_new(ctx, jsThis, 1, &nodename);
 
 	JS_SetPropertyStr(ctx, element, "nodeValue", JS_DupValue(ctx, argv[1]));
-	JS_FreeValue(ctx, element_append_child(ctx, jsThis, 1, &element));
+	JS_FreeValue(ctx, node_append_child(ctx, jsThis, 1, &element));
 
 	JS_FreeValue(ctx, nodename);
 	JS_FreeValue(ctx, element);
@@ -2251,6 +2353,8 @@ element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     ParsedURL pu;
 
     if ((str = get_str(ctx, val)) == NULL) {
+	JS_ThrowTypeError(ctx, "Element.href: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -2290,30 +2394,47 @@ element_href_get(JSContext *ctx, JSValueConst jsThis)
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
 
-static const JSCFunctionListEntry ElementFuncs[] = {
-    /* Node (see DocumentFuncs) */
-    JS_CFUNC_DEF("appendChild", 1, element_append_child),
-    JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
-    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
-    JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
-    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
-    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
-    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
-    JS_CGETSET_DEF("nextSibling", element_next_sibling_get, NULL),
-    JS_CGETSET_DEF("previousSibling", element_previous_sibling_get, NULL),
-    JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
-    JS_CFUNC_DEF("cloneNode", 1, element_clone_node),
-    JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
-    JS_CFUNC_DEF("contains", 1, element_contains),
+static JSValue
+element_child_element_count_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_EvalThis(ctx, jsThis, "this.children.length;", 21, "<input>", EVAL_FLAG);
+}
 
+static const JSCFunctionListEntry NodeFuncs[] = {
     /* EventTarget */
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
     JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
     JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
 
+    /* Node */
+    JS_CFUNC_DEF("appendChild", 1, node_append_child),
+    JS_CFUNC_DEF("insertBefore", 1, node_insert_before),
+    JS_CFUNC_DEF("removeChild", 1, node_remove_child),
+    JS_CFUNC_DEF("replaceChild", 1, node_replace_child),
+    JS_CFUNC_DEF("hasChildNodes", 1, node_has_child_nodes),
+    JS_CGETSET_DEF("firstChild", node_first_child_get, NULL),
+    JS_CGETSET_DEF("lastChild", node_last_child_get, NULL),
+    JS_CGETSET_DEF("nextSibling", node_next_sibling_get, NULL),
+    JS_CGETSET_DEF("previousSibling", node_previous_sibling_get, NULL),
+    JS_CFUNC_DEF("compareDocumentPosition", 1, node_compare_document_position),
+    JS_CFUNC_DEF("cloneNode", 1, node_clone_node),
+    JS_CGETSET_DEF("textContent", node_text_content_get, node_text_content_set),
+    JS_CFUNC_DEF("contains", 1, node_contains),
+    JS_PROP_INT32_DEF("ELEMENT_NODE", 1, 0),
+    JS_PROP_INT32_DEF("ATTRIBUTE_NODE", 2, 0),
+    JS_PROP_INT32_DEF("TEXT_NODE", 3, 0),
+    JS_PROP_INT32_DEF("CDATA_SECTION_NODE", 4, 0),
+    JS_PROP_INT32_DEF("PROCESSING_INSTRUCTION_NODE", 7, 0),
+    JS_PROP_INT32_DEF("COMMENT_NODE", 8, 0),
+    JS_PROP_INT32_DEF("DOCUMENT_NODE", 9, 0),
+    JS_PROP_INT32_DEF("DOCUMENT_TYPE_NODE", 10, 0),
+    JS_PROP_INT32_DEF("DOCUMENT_FRAGMENT_NODE", 11, 0),
+};
+
+static const JSCFunctionListEntry ElementFuncs[] = {
     /* Element */
-    JS_CGETSET_DEF("firstElementChild", element_first_child_get, NULL),
-    JS_CGETSET_DEF("lastElementChild", element_last_child_get, NULL),
+    JS_CGETSET_DEF("firstElementChild", node_first_child_get, NULL),
+    JS_CGETSET_DEF("lastElementChild", node_last_child_get, NULL),
     JS_CFUNC_DEF("closest", 1, element_closest),
     JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
     JS_CFUNC_DEF("getAttribute", 1, element_get_attribute),
@@ -2326,17 +2447,18 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("getElementsByTagName", 1, element_get_elements_by_tag_name),
     JS_CFUNC_DEF("getElementsByTagNameNS", 1, element_get_elements_by_tag_name),
     JS_CFUNC_DEF("getElementsByClassName", 1, element_get_elements_by_class_name),
-    JS_CGETSET_DEF("innerHTML", element_text_content_get, element_text_content_set),
+    JS_CGETSET_DEF("innerHTML", node_text_content_get, node_text_content_set),
     JS_CFUNC_DEF("insertAdjacentHTML", 1, element_insert_adjacent_html),
     JS_CFUNC_DEF("getAttributeNode", 1, element_get_attribute_node),
     JS_CGETSET_DEF("childElementCount", element_child_count_get, NULL),
     JS_CGETSET_DEF("className", element_class_name_get, element_class_name_set),
     JS_CFUNC_DEF("remove", 1, element_remove),
+    JS_CGETSET_DEF("childElementCount", element_child_element_count_get, NULL),
 
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
     JS_CGETSET_DEF("offsetParent", element_offset_parent_get, NULL),
-    JS_CGETSET_DEF("innerText", element_text_content_get, element_text_content_set),
+    JS_CGETSET_DEF("innerText", node_text_content_get, node_text_content_set),
     JS_CFUNC_DEF("click", 1, element_click),
     JS_CFUNC_DEF("focus", 1, element_focus_or_blur),
     JS_CFUNC_DEF("blur", 1, element_focus_or_blur),
@@ -2357,38 +2479,68 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CFUNC_DEF("getContext", 1, element_get_context),
     JS_CFUNC_DEF("toDataURL", 1, element_to_data_url),
 
+    /* XXX SVGTextContentElement */
+    JS_CFUNC_DEF("getNumberOfChars", 1, element_get_number_of_chars),
+
     /* XXX HTMLFormElement */
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
     JS_CFUNC_DEF("reset", 1, html_form_element_reset),
-
-    /* XXX SVGTextContentElement */
-    JS_CFUNC_DEF("getNumberOfChars", 1, element_get_number_of_chars),
 };
+
+static int
+call_setter(JSContext *ctx, JSValueConst jsThis, JSValueConst arg, const char *key,
+	    const JSCFunctionListEntry *funcs, int num)
+{
+    size_t i;
+
+    for (i = 0; i < num; i++) {
+	if (strcmp(key, funcs[i].name) == 0) {
+	    if (funcs[i].def_type == JS_DEF_CGETSET) {
+		(*funcs[i].u.getset.set.setter)(ctx, jsThis, JS_DupValue(ctx, arg));
+		return 1;
+	    }
+	}
+    }
+
+    return 0;
+}
+
+static JSValue
+call_getter(JSContext *ctx, JSValueConst jsThis, JSValueConst arg, const char *key,
+	    const JSCFunctionListEntry *funcs, int num)
+{
+    size_t i;
+
+    for (i = 0; i < num; i++) {
+	if (strcmp(key, funcs[i].name) == 0) {
+	    if (funcs[i].def_type == JS_DEF_CGETSET) {
+		return (*funcs[i].u.getset.get.getter)(ctx, jsThis);
+	    }
+	}
+    }
+
+    return JS_NULL;
+}
 
 static JSValue
 element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "Element.setAttribute: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
     if (JS_IsString(argv[0])) {
 	const char *key = JS_ToCString(ctx, argv[0]);
-	size_t i;
 
-	for (i = 0; i < sizeof(ElementFuncs) / sizeof(ElementFuncs[0]); i++) {
-	    if (strcmp(key, ElementFuncs[i].name) == 0) {
-		if (ElementFuncs[i].def_type == JS_DEF_CGETSET) {
-		    (*ElementFuncs[i].u.getset.set.setter)(ctx, jsThis,
-							   JS_DupValue(ctx, argv[1]));
-		    goto end;
-		}
-	    }
+	if (!call_setter(ctx, jsThis, argv[1], key, NodeFuncs,
+			 sizeof(NodeFuncs) / sizeof(NodeFuncs[0])) &&
+	    !call_setter(ctx, jsThis, argv[1], key, ElementFuncs,
+			 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]))) {
+	    JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
 	}
 
-	JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
-
-    end:
 	JS_FreeCString(ctx, key);
     }
 
@@ -2399,26 +2551,26 @@ static JSValue
 element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Element.getAttribute: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
     if (JS_IsString(argv[0])) {
 	const char *key = JS_ToCString(ctx, argv[0]);
-	size_t i;
 	JSValue prop;
 
-	for (i = 0; i < sizeof(ElementFuncs) / sizeof(ElementFuncs[0]); i++) {
-	    if (strcmp(key, ElementFuncs[i].name) == 0) {
-		if (ElementFuncs[i].def_type == JS_DEF_CGETSET) {
-		    prop = (*ElementFuncs[i].u.getset.get.getter)(ctx, jsThis);
-		    goto end;
-		}
+	prop = call_getter(ctx, jsThis, argv[1], key, NodeFuncs,
+			   sizeof(NodeFuncs) / sizeof(NodeFuncs[0]));
+	if (JS_IsNull(prop)) {
+	    prop = call_getter(ctx, jsThis, argv[1], key, ElementFuncs,
+			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
+
+	    if (JS_IsNull(prop)) {
+		prop = JS_GetPropertyStr(ctx, jsThis, key);
 	    }
 	}
 
-	prop = JS_GetPropertyStr(ctx, jsThis, key);
-
-    end:
 	JS_FreeCString(ctx, key);
 
 	if (!JS_IsUndefined(prop)) {
@@ -2483,6 +2635,8 @@ history_go(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     int i;
 
     if (argc < 1 || !JS_IsNumber(argv[0])) {
+	JS_ThrowTypeError(ctx, "History.go: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -2860,25 +3014,8 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 }
 
 static const JSCFunctionListEntry DocumentFuncs[] = {
-    /* Node (see ElementFuncs) */
-    JS_CFUNC_DEF("appendChild", 1, element_append_child),
-    JS_CFUNC_DEF("insertBefore", 1, element_insert_before),
-    JS_CFUNC_DEF("removeChild", 1, element_remove_child),
-    JS_CFUNC_DEF("replaceChild", 1, element_replace_child),
-    JS_CFUNC_DEF("hasChildNodes", 1, element_has_child_nodes),
-    JS_CGETSET_DEF("firstChild", element_first_child_get, NULL),
-    JS_CGETSET_DEF("lastChild", element_last_child_get, NULL),
-    JS_CGETSET_DEF("nextSibling", element_next_sibling_get, NULL),
-    JS_CGETSET_DEF("previousSibling", element_previous_sibling_get, NULL),
-    JS_CFUNC_DEF("compareDocumentPosition", 1, element_compare_document_position),
+    /* override Node */
     JS_CFUNC_DEF("cloneNode", 1, document_clone_node),
-    JS_CGETSET_DEF("textContent", element_text_content_get, element_text_content_set),
-    JS_CFUNC_DEF("contains", 1, element_contains),
-
-    /* EventTarget */
-    JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
-    JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
-    JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
 
     /* Document */
     JS_CFUNC_DEF("open", 1, document_open),
@@ -2980,6 +3117,8 @@ xml_http_request_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     size_t len;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "XMLHttpRequest.open: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3009,8 +3148,9 @@ xml_http_request_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     return JS_UNDEFINED;
 
 error:
-    log_msg("XMLHttpRequest: Unknown method");
     JS_FreeCString(ctx, str);
+    JS_ThrowTypeError(ctx, "XMLHttpRequest.open: Unknown method.");
+
     return JS_EXCEPTION;
 }
 
@@ -3021,6 +3161,8 @@ xml_http_request_add_event_listener(JSContext *ctx, JSValueConst jsThis, int arg
     const char *str;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "XMLHttpRequest.addEventListener: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3039,6 +3181,8 @@ xml_http_request_set_request_header(JSContext *ctx, JSValueConst jsThis,
     const char *header;
 
     if (argc < 2) {
+	JS_ThrowTypeError(ctx, "XMLHttpRequest.setRequestHeader: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3114,6 +3258,8 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 
 	cstr = JS_ToCStringLen(ctx, &len, argv[0]);
 	if (cstr == NULL) {
+	    JS_ThrowTypeError(ctx, "XMLHttpRequest.send: Error");
+
 	    return JS_EXCEPTION;
 	}
 
@@ -3265,6 +3411,8 @@ xml_http_request_get_response_header(JSContext *ctx, JSValueConst jsThis, int ar
     TextListItem *i;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "XMLHttpRequest.getResponseHeader: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3334,6 +3482,9 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
     void *p;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, is_timeout ? "setTimeout: Too few arguments." :
+			                    "setInterval: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3422,6 +3573,8 @@ clear_interval(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
     int idx;
 
     if (argc < 1) {
+	JS_ThrowTypeError(ctx, "clearInterval: Too few arguments.");
+
 	return JS_EXCEPTION;
     }
 
@@ -3475,11 +3628,17 @@ int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, voi
 		/* interval_callbacks[i] can be destroyed in JS_Call() below. */
 		JSContext *ctx = interval_callbacks[i].ctx;
 		CtxState *ctxstate = JS_GetContextOpaque(ctx);
-		JSValue val = backtrace(ctx, "interval/timeout function",
+#ifdef SCRIPT_DEBUG
+		const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
+#endif
+		JSValue val = backtrace(ctx, script ? script : "interval/timeout func",
 					JS_Call(interval_callbacks[i].ctx,
 						interval_callbacks[i].func,
 						JS_NULL, interval_callbacks[i].argc,
 						interval_callbacks[i].argv));
+#ifdef SCRIPT_DEBUG
+		JS_FreeCString(ctx, script);
+#endif
 		JS_FreeValue(ctx, val);
 		if (ctxstate->buf == buf) {
 		    if (executed == 0) {
@@ -3512,7 +3671,8 @@ int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, voi
 static void
 create_class(JSContext *ctx, JSValue gl, JSClassID *id, char *name,
 	     const JSCFunctionListEntry *funcs, int num_funcs, const JSClassDef *class,
-	     JSValue (*ctor_func)(JSContext *, JSValueConst, int, JSValueConst *))
+	     JSValue (*ctor_func)(JSContext *, JSValueConst, int, JSValueConst *),
+	     JSClassID parent_class)
 {
     JSValue proto;
     JSValue ctor;
@@ -3521,8 +3681,19 @@ create_class(JSContext *ctx, JSValue gl, JSClassID *id, char *name,
 	JS_NewClassID(id);
 	JS_NewClass(rt, *id, class);
     }
-    proto = JS_NewObject(ctx);
-    JS_SetPropertyFunctionList(ctx, proto, funcs, num_funcs);
+
+    if (parent_class != 0) {
+	JSValue parent_proto = JS_GetClassProto(ctx, parent_class);
+	proto = JS_NewObjectProto(ctx, parent_proto);
+	JS_FreeValue(ctx, parent_proto);
+    } else {
+	proto = JS_NewObject(ctx);
+    }
+
+    if (funcs) {
+	JS_SetPropertyFunctionList(ctx, proto, funcs, num_funcs);
+    }
+
     JS_SetClassProto(ctx, *id, proto);
     ctor = JS_NewCFunction2(ctx, ctor_func, name, 1, JS_CFUNC_constructor, 0);
     JS_SetConstructor(ctx, ctor, proto);
@@ -3715,7 +3886,28 @@ js_html_init(Buffer *buf)
 	"    } else {"
 	"      this.name = args[1];"
 	"    }"
-	"    this.code = 0;"
+	"    this.code = 0; /* dummy */"
+	"    this.INDEX_SIZE_ERR = 1;"
+	"    this.HIERARCHY_REQUEST_ERR = 3;"
+	"    this.WRONG_DOCUMENT_ERR = 4;"
+	"    this.INVALID_CHARACTER_ERR = 5;"
+	"    this.NO_MODIFICATION_ALLOWED_ERR = 7;"
+	"    this.NOT_FOUND_ERR = 8;"
+	"    this.NOT_SUPPORTED_ERR = 9;"
+	"    this.INUSE_ATTRIBUTE_ERR = 10;"
+	"    this.INVALID_STATE_ERR = 11;"
+	"    this.SYNTAX_ERR = 12;"
+	"    this.INVALID_MODIFICATION_ERR = 13;"
+	"    this.NAMESPACE_ERR = 14;"
+	"    this.INVALID_ACCESS_ERR = 15;"
+	"    this.SECURITY_ERR = 18;"
+	"    this.NETWORK_ERR = 19;"
+	"    this.ABORT_ERR = 20;"
+	"    this.URL_MISMATCH_ERR = 21;"
+	"    this.QUOTA_EXCEEDED_ERR = 22;"
+	"    this.TIMEOUT_ERR = 23;"
+	"    this.INVALID_NODE_TYPE_ERR = 24;"
+	"    this.DATA_CLONE_ERR = 25;"
 	"  }"
 	"};"
 	""
@@ -3914,10 +4106,10 @@ js_html_init(Buffer *buf)
 	"  }"
 	"}";
     const char script2[] =
-#if 0
+#if 1
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].formName + \")\");"
+	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].nodeType + \")\");"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -4170,7 +4362,7 @@ js_html_init(Buffer *buf)
 	"    w3m_initDocument(doc);"
 	"    w3m_initDocumentTree(doc);"
 	"    doc.title = \"\";"
-	"    if (args.length > 2) {"
+	"    if (args.length > 2 && args[2]) {"
 	"      args[2].ownerDocument = doc;"
 	"    }"
 	"    return doc;"
@@ -4183,6 +4375,7 @@ js_html_init(Buffer *buf)
 	"      type.systemId = systemId;"
 	"      type.internalSubset = null;"
 	"      type.name = \"html\";"
+	"      type.nodeType = 10; /* DOCUMENT_TYPE_NODE */"
 	"      /* XXX type.notations */"
 	"      return type;"
 	"    };"
@@ -4193,7 +4386,7 @@ js_html_init(Buffer *buf)
 	"    return element;"
 	"  };"
 	""
-	"  /* see element_text_content_set() in js_html.c */"
+	"  /* see node_text_content_set() in js_html.c */"
 	"  doc.createTextNode = function(text) {"
 	"    let element = new HTMLElement(\"#text\");"
 	"    element.nodeValue = text;"
@@ -4568,64 +4761,57 @@ js_html_init(Buffer *buf)
 
     create_class(ctx, gl, &LocationClassID, "Location", LocationFuncs,
 		 sizeof(LocationFuncs) / sizeof(LocationFuncs[0]), &LocationClass,
-		 location_new);
+		 location_new, 0);
 
-    create_class(ctx, gl, &HTMLFormElementClassID, "HTMLFormElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]), &HTMLFormElementClass,
-		 html_form_element_new);
-
-    create_class(ctx, gl, &HTMLElementClassID, "HTMLElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLElementClass,
-		 html_element_new);
-
-    create_class(ctx, gl, &HTMLImageElementClassID, "HTMLImageElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLImageElementClass,
-		 html_image_element_new);
-
-    create_class(ctx, gl, &HTMLSelectElementClassID, "HTMLSelectElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLSelectElementClass,
-		 html_select_element_new);
-
-    create_class(ctx, gl, &HTMLScriptElementClassID, "HTMLScriptElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLScriptElementClass,
-		 html_script_element_new);
-
-    create_class(ctx, gl, &HTMLCanvasElementClassID, "HTMLCanvasElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &HTMLCanvasElementClass,
-		 html_canvas_element_new);
-
-    create_class(ctx, gl, &SVGElementClassID, "SVGElement", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &SVGElementClass,
-		 svg_element_new);
+    create_class(ctx, gl, &NodeClassID, "Node", NodeFuncs,
+		 sizeof(NodeFuncs) / sizeof(NodeFuncs[0]), &NodeClass,
+		 node_new, 0);
 
     create_class(ctx, gl, &ElementClassID, "Element", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &ElementClass,
-		 element_new);
+		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]), &ElementClass,
+		 element_new, NodeClassID);
 
-    create_class(ctx, gl, &NodeClassID, "Node", ElementFuncs,
-		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]) - 2, &NodeClass,
-		 node_new);
+    create_class(ctx, gl, &HTMLFormElementClassID, "HTMLFormElement", NULL, 0,
+		 &HTMLFormElementClass, html_form_element_new, ElementClassID);
 
-    create_class(ctx, gl, &HistoryClassID, "History", HistoryFuncs,
-		 sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]), &HistoryClass,
-		 history_new);
+    create_class(ctx, gl, &HTMLElementClassID, "HTMLElement", NULL, 0,
+		 &HTMLElementClass, html_element_new, ElementClassID);
 
-    create_class(ctx, gl, &NavigatorClassID, "Navigator", NavigatorFuncs,
-		 sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]), &NavigatorClass,
-		 navigator_new);
+    create_class(ctx, gl, &HTMLImageElementClassID, "HTMLImageElement", NULL, 0,
+		 &HTMLImageElementClass, html_image_element_new, ElementClassID);
+
+    create_class(ctx, gl, &HTMLSelectElementClassID, "HTMLSelectElement", NULL, 0,
+		 &HTMLSelectElementClass, html_select_element_new, ElementClassID);
+
+    create_class(ctx, gl, &HTMLScriptElementClassID, "HTMLScriptElement", NULL, 0,
+		 &HTMLScriptElementClass, html_script_element_new, ElementClassID);
+
+    create_class(ctx, gl, &HTMLCanvasElementClassID, "HTMLCanvasElement", NULL, 0,
+		 &HTMLCanvasElementClass, html_canvas_element_new, ElementClassID);
+
+    create_class(ctx, gl, &SVGElementClassID, "SVGElement", NULL, 0,
+		 &SVGElementClass, svg_element_new, ElementClassID);
 
     create_class(ctx, gl, &DocumentClassID, "Document", DocumentFuncs,
 		 sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]), &DocumentClass,
-		 document_new);
+		 document_new, NodeClassID);
+
+    create_class(ctx, gl, &HistoryClassID, "History", HistoryFuncs,
+		 sizeof(HistoryFuncs) / sizeof(HistoryFuncs[0]), &HistoryClass,
+		 history_new, 0);
+
+    create_class(ctx, gl, &NavigatorClassID, "Navigator", NavigatorFuncs,
+		 sizeof(NavigatorFuncs) / sizeof(NavigatorFuncs[0]), &NavigatorClass,
+		 navigator_new, 0);
 
     create_class(ctx, gl, &XMLHttpRequestClassID, "XMLHttpRequest", XMLHttpRequestFuncs,
 		 sizeof(XMLHttpRequestFuncs) / sizeof(XMLHttpRequestFuncs[0]), &XMLHttpRequestClass,
-		 xml_http_request_new);
+		 xml_http_request_new, 0);
 
     create_class(ctx, gl, &CanvasRenderingContext2DClassID, "CanvasRenderingContext2D",
 		 CanvasRenderingContext2DFuncs,
 		 sizeof(CanvasRenderingContext2DFuncs) / sizeof(CanvasRenderingContext2DFuncs[0]),
-		 &CanvasRenderingContext2DClass, canvas_rendering_context2d_new);
+		 &CanvasRenderingContext2DClass, canvas_rendering_context2d_new, 0);
 
     JS_FreeValue(ctx, backtrace(ctx, script2,
 				JS_Eval(ctx, script2, sizeof(script2) - 1, "<input>", EVAL_FLAG)));
@@ -4784,16 +4970,18 @@ js_eval2(JSContext *ctx, char *script) {
     Strcat_charp(str, beg);
     script = str->ptr;
 
+#if 0
     beg = script;
-    const char seq2[] = "kungFuDeathGrip.childNodes[1].contentDocument;";
+    const char seq2[] = "\"text node nodeType wrong\");";
     str = Strnew();
     while ((p = strstr(beg, seq2))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "dump_tree(kungFuDeathGrip, \"\");");
+	Strcat_charp(str, "console.log(document.firstChild);");
         beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
+#endif
 #endif
     return backtrace(ctx, script,
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
@@ -5053,6 +5241,19 @@ find_form(JSContext *ctx, xmlNode *node)
 }
 
 static void
+create_dtd(JSContext *ctx, xmlDtd *dtd, JSValue doc)
+{
+    JSValue args[2];
+    char *script = Sprintf("this.implementation.createDocumentType(%s, %s, %s);",
+			   dtd->name ? Sprintf("\"%s\"", dtd->name)->ptr : "null",
+			   dtd->ExternalID ? Sprintf("\"%s\"", dtd->ExternalID)->ptr : "null",
+			   dtd->SystemID ? Sprintf("\"%s\"", dtd->SystemID)->ptr : "null")->ptr;
+    args[0] = JS_EvalThis(ctx, doc, script, strlen(script), "<input>", EVAL_FLAG);
+    args[1] = JS_EvalThis(ctx, doc, "this.firstChild;", 16, "<input>", EVAL_FLAG);
+    JS_FreeValue(ctx, node_insert_before(ctx, doc, 2, args));
+}
+
+static void
 create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 {
 #ifdef DOM_DEBUG
@@ -5160,7 +5361,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    continue;
 	}
 
-	JS_FreeValue(ctx, element_append_child(ctx, jsparent, 1, &jsnode));
+	JS_FreeValue(ctx, node_append_child(ctx, jsparent, 1, &jsnode));
 
 #ifdef DOM_DEBUG
 	fclose(fp);
@@ -5184,6 +5385,7 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     URLFile uf;
     xmlDoc *doc;
     xmlNode *node;
+    xmlDtd *dtd;
 
     if (filename == NULL) {
 	goto error;
@@ -5207,17 +5409,23 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 	}
 
 	doc = htmlReadMemory(str->ptr, str->length, filename, charset,
-			     HTML_PARSE_RECOVER|HTML_PARSE_NOERROR|HTML_PARSE_NOWARNING);
+			     HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
+			     HTML_PARSE_NOWARNING | HTML_PARSE_NODEFDTD);
     } else {
 	/* parse the file and get the DOM */
 	doc = htmlReadFile(filename, charset,
-			   HTML_PARSE_RECOVER|HTML_PARSE_NOERROR|HTML_PARSE_NOWARNING);
+			   HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
+			   HTML_PARSE_NOWARNING | HTML_PARSE_NODEFDTD);
     }
 
     if (doc == NULL) {
 	goto error;
     }
 
+    dtd = xmlGetIntSubset(doc);
+    if (dtd) {
+	create_dtd(ctx, dtd, js_get_document(ctx));
+    }
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
 	JSValue element;
 	xmlAttr *attr;

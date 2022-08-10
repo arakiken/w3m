@@ -2461,6 +2461,7 @@ sleep_till_anykey(int sec, int purge)
 
 #ifdef USE_SCRIPT
     int buf2js = 1;
+    int js2buf = -1;
     int msec = sec * 1000;
     struct timeval before, after;
 #endif
@@ -2489,9 +2490,11 @@ sleep_till_anykey(int sec, int purge)
 	    msec -= 100;
 	    after.tv_sec = before.tv_sec;
 	    after.tv_usec = before.tv_usec + 100000;
-	    trigger_interval(Currentbuf,
-			     (after.tv_sec - before.tv_sec) * 1000 +
-			     (after.tv_usec - before.tv_usec) / 1000, buf2js, 0);
+	    if (trigger_interval(Currentbuf,
+				 (after.tv_sec - before.tv_sec) * 1000 +
+				 (after.tv_usec - before.tv_usec) / 1000, buf2js, 0)) {
+		js2buf = 1;
+	    }
 	    buf2js = 0;
 	    goto retry;
 	}
@@ -2512,7 +2515,7 @@ sleep_till_anykey(int sec, int purge)
     gettimeofday(&after, NULL);
     trigger_interval(Currentbuf,
 		     (after.tv_sec - before.tv_sec) * 1000 +
-		     (after.tv_usec - before.tv_usec) / 1000, buf2js, 1);
+		     (after.tv_usec - before.tv_usec) / 1000, buf2js, js2buf);
 #endif
 
     return ret;
