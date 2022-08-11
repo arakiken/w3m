@@ -1385,7 +1385,14 @@ int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 
     ret = js_trigger_interval(buf, msec, buf2js ? update_forms : NULL);
     if ((ret && js2buf) || js2buf > 0) {
-	script_js2buf(buf, buf->script_interp);
+	Str str = script_js2buf(buf, buf->script_interp);
+#ifdef SCRIPT_DEBUG
+	if (str) {
+	    FILE *fp = fopen("scriptlog.txt", "a");
+	    fprintf(fp, "Loop: %s\n", str->ptr);
+	    fclose(fp);
+	}
+#endif
     } else if (ret) {
 	/*
 	 * Force script_js2buf() at the next trigger_interval()
@@ -1417,8 +1424,16 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int o
 
 	return script_js_eval(buf, script, buf2js, js2buf, onload, fl, output);
     } else
+#ifdef SCRIPT_DEBUG
+    {
+	FILE *fp = fopen("scriptlog.txt", "a");
+	fprintf(fp, "Unknown script lang: %s\n%s\n", lang, script);
+	fclose(fp);
+    }
 #endif
-	return 0;
+#endif
+
+    return 0;
 }
 
 void

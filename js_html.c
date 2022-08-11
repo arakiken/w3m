@@ -3,12 +3,13 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
-#define NUM_TAGNAMES 5
+#define NUM_TAGNAMES 6
 #define TN_FORM 0
 #define TN_IMG 1
 #define TN_SCRIPT 2
 #define TN_SELECT 3
 #define TN_CANVAS 4
+#define TN_SVG 5
 
 typedef struct _CtxState {
     JSValue tagnames[NUM_TAGNAMES];
@@ -72,6 +73,25 @@ log_msg(const char *msg)
     }
 }
 
+static void
+dump_error(JSContext *ctx, const char *script)
+{
+    JSValue err = JS_GetException(ctx);
+    const char *err_str = JS_ToCString(ctx, err);
+
+    JSValue stack = JS_GetPropertyStr(ctx, err, "stack");
+    const char *stack_str = JS_ToCString(ctx, stack);
+
+    FILE *fp = fopen("scriptlog.txt", "a");
+    fprintf(fp, "<%s>\n%s\n%s\n", err_str, stack_str, script);
+    fclose(fp);
+
+    JS_FreeCString(ctx, err_str);
+    JS_FreeCString(ctx, stack_str);
+    JS_FreeValue(ctx, err);
+    JS_FreeValue(ctx, stack);
+}
+
 #ifdef SCRIPT_DEBUG
 static JSValue
 backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
@@ -83,20 +103,7 @@ backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
 #endif
 
     if (JS_IsException(eval_ret)) {
-	JSValue err = JS_GetException(ctx);
-	const char *err_str = JS_ToCString(ctx, err);
-
-	JSValue stack = JS_GetPropertyStr(ctx, err, "stack");
-	const char *stack_str = JS_ToCString(ctx, stack);
-
-	FILE *fp = fopen("scriptlog.txt", "a");
-	fprintf(fp, "<%s>\n%s\n%s\n", err_str, stack_str, script);
-	fclose(fp);
-
-	JS_FreeCString(ctx, err_str);
-	JS_FreeCString(ctx, stack_str);
-	JS_FreeValue(ctx, err);
-	JS_FreeValue(ctx, stack);
+	dump_error(ctx, script);
     }
 
     return eval_ret;
@@ -196,7 +203,14 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 	FILE *fp = fopen("scriptlog.txt", "a");
 	JSValue tag = JS_GetPropertyStr(ctx, jsThis, "nodeName");
 	const char *str2 = JS_ToCString(ctx, tag);
+	const char *script;
+
 	fprintf(fp, "<Unknown event (addEventListener)> %s (tag %s) \n", str, str2);
+	script = JS_ToCString(ctx, argv[1]);
+	if (script) {
+	    fprintf(fp, "=> %s\n\n", script);
+	    JS_FreeCString(ctx, script);
+	}
 	JS_FreeCString(ctx, str2);
 	JS_FreeValue(ctx, tag);
 	fclose(fp);
@@ -863,7 +877,8 @@ location_search_get(JSContext *ctx, JSValueConst jsThis)
 	"  }"
 	"  params;"
 	"}";
-    return JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG);
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 #else
     LocationState *state = JS_GetOpaque(jsThis, LocationClassID);
     Str s;
@@ -1390,16 +1405,15 @@ static JSValue
 svg_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     JSValue obj;
+    CtxState *ctxstate;
 
-    /* XXX */
-    if (argc < 1 || !JS_IsString(argv[0])) {
-	JS_ThrowTypeError(ctx, "SVGElement constructor: Too few arguments.");
-
-	return JS_EXCEPTION;
+    ctxstate = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(ctxstate->tagnames[TN_SVG])) {
+	ctxstate->tagnames[TN_SVG] = JS_NewString(ctx, "SVG");
     }
 
     obj = JS_NewObjectClass(ctx, SVGElementClassID);
-    set_element_property(ctx, obj, argv[0]);
+    set_element_property(ctx, obj, ctxstate->tagnames[TN_SVG]);
 
     return obj;
 }
@@ -1548,17 +1562,7 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 #endif
 
     val = JS_GetPropertyStr(ctx, jsThis, "children");
-    if (append_child) {
-	prop = JS_GetPropertyStr(ctx, val, "push");
-	vret = JS_Call(ctx, prop, val, 1, argv);
-	JS_FreeValue(ctx, prop);
-	JS_FreeValue(ctx, val);
-
-	JS_ToInt32(ctx, &iret, vret);
-	JS_FreeValue(ctx, vret);
-
-	iret--;
-    } else {
+    if (!append_child) {
 #if 0
 	log_msg("=== BEFORE");
 	log_msg(get_cstr(ctx, JS_GetPropertyStr(ctx, argv[0], "tagName")));
@@ -1580,15 +1584,28 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 		JS_FreeValue(ctx, JS_Call(ctx, prop, val, 3, argv2));
 		JS_FreeValue(ctx, argv2[1]);
 		JS_FreeValue(ctx, prop);
+	    } else {
+		append_child = 1;
 	    }
 	}
 	JS_FreeValue(ctx, vret);
-	JS_FreeValue(ctx, val);
 #if 0
+
 	log_msg("=== AFTER");
 	JS_EvalThis(ctx, jsThis, "dump_tree(this, \"\");", 20, "<input>", EVAL_FLAG);
 #endif
     }
+    if (append_child) {
+	prop = JS_GetPropertyStr(ctx, val, "push");
+	vret = JS_Call(ctx, prop, val, 1, argv);
+	JS_FreeValue(ctx, prop);
+
+	JS_ToInt32(ctx, &iret, vret);
+	JS_FreeValue(ctx, vret);
+
+	iret--;
+    }
+    JS_FreeValue(ctx, val);
 
 #if 0
     fp = fopen("w3mlog.txt", "a");
@@ -1623,12 +1640,14 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 #if 1
 	/* XXX for acid3 test 65 and 69 */
 	char *script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
-	JS_FreeValue(ctx, JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
+	JS_FreeValue(ctx, backtrace(ctx, script,
+				    JS_EvalThis(ctx, jsThis, script, strlen(script),
+						"<input>", EVAL_FLAG)));
 #endif
 
 	return JS_DupValue(ctx, argv[0]); /* XXX segfault without this by returining argv[0]. */
     } else {
-	JS_ThrowTypeError(ctx, "Node.appendChild: Illegal argument.");
+	JS_ThrowTypeError(ctx, "Node.appendChild: Error happens.");
 
 	return JS_EXCEPTION;
     }
@@ -2353,7 +2372,7 @@ element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     ParsedURL pu;
 
     if ((str = get_str(ctx, val)) == NULL) {
-	JS_ThrowTypeError(ctx, "Element.href: Too few arguments.");
+	JS_ThrowTypeError(ctx, "Element.href: The value is not String.");
 
 	return JS_EXCEPTION;
     }
@@ -2405,6 +2424,7 @@ static const JSCFunctionListEntry NodeFuncs[] = {
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
     JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
     JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
+    JS_CFUNC_DEF("attachEvent", 1, add_event_listener), /* XXX DEPRECATED */
 
     /* Node */
     JS_CFUNC_DEF("appendChild", 1, node_append_child),
@@ -2468,6 +2488,9 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     /* XXX HTMLAnchorElement */
     JS_CGETSET_DEF("href", element_href_get, element_href_set),
 
+    /* XXX HTMLSelectElement */
+    JS_CFUNC_DEF("add", 1, node_append_child),
+
     /* XXX HTMLInputElement */
     JS_CFUNC_DEF("select", 1, element_select),
 
@@ -2506,7 +2529,7 @@ call_setter(JSContext *ctx, JSValueConst jsThis, JSValueConst arg, const char *k
 }
 
 static JSValue
-call_getter(JSContext *ctx, JSValueConst jsThis, JSValueConst arg, const char *key,
+call_getter(JSContext *ctx, JSValueConst jsThis, const char *key,
 	    const JSCFunctionListEntry *funcs, int num)
 {
     size_t i;
@@ -2560,10 +2583,10 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	const char *key = JS_ToCString(ctx, argv[0]);
 	JSValue prop;
 
-	prop = call_getter(ctx, jsThis, argv[1], key, NodeFuncs,
+	prop = call_getter(ctx, jsThis, key, NodeFuncs,
 			   sizeof(NodeFuncs) / sizeof(NodeFuncs[0]));
 	if (JS_IsNull(prop)) {
-	    prop = call_getter(ctx, jsThis, argv[1], key, ElementFuncs,
+	    prop = call_getter(ctx, jsThis, key, ElementFuncs,
 			       sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
 
 	    if (JS_IsNull(prop)) {
@@ -2935,7 +2958,7 @@ document_location_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 document_location_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 {
-    return location_href_set(ctx, JS_Eval(ctx, "location;", 9, "<input>", EVAL_FLAG), val);
+    return location_href_set(ctx, document_location_get(ctx, jsThis), val);
 }
 
 static JSValue
@@ -3013,6 +3036,15 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
     }
 }
 
+static JSValue
+document_current_script_get(JSContext *ctx, JSValueConst jsThis)
+{
+    const char script[] = "if (this.scripts.length > 0) { this.scripts[0]; } else { null; }";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
 static const JSCFunctionListEntry DocumentFuncs[] = {
     /* override Node */
     JS_CFUNC_DEF("cloneNode", 1, document_clone_node),
@@ -3027,6 +3059,7 @@ static const JSCFunctionListEntry DocumentFuncs[] = {
     JS_CGETSET_DEF("cookie", document_cookie_get, document_cookie_set),
     JS_CGETSET_DEF("referrer", document_referrer_get, NULL),
     JS_CFUNC_DEF("hasFocus", 1, document_has_focus),
+    JS_CGETSET_DEF("currentScript", document_current_script_get, NULL),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLDocument", JS_PROP_CONFIGURABLE),
 };
@@ -3612,6 +3645,12 @@ int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, voi
     int num = num_interval_callbacks;
     struct interval_callback_sort *sort_data = malloc(num * sizeof(*sort_data));
     int executed = 0;
+    JSContext *ctx;
+
+    /* 'Promise' works by this. */
+    if (JS_ExecutePendingJob(rt, &ctx) < 0) {
+	dump_error(ctx, "JS_ExecutePendingJob");
+    }
 
     for (i = 0; i < num; i++) {
 	sort_data[i].cur_delay = interval_callbacks[i].cur_delay;
@@ -3626,7 +3665,7 @@ int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, voi
 		interval_callbacks[i].cur_delay -= msec;
 	    } else {
 		/* interval_callbacks[i] can be destroyed in JS_Call() below. */
-		JSContext *ctx = interval_callbacks[i].ctx;
+		ctx = interval_callbacks[i].ctx;
 		CtxState *ctxstate = JS_GetContextOpaque(ctx);
 #ifdef SCRIPT_DEBUG
 		const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
@@ -4055,6 +4094,14 @@ js_html_init(Buffer *buf)
 	"    }"
 	"    return null;"
 	"  }"
+	"  set(name, value) {"
+	"    let i = this.param_keys.indexOf(name);"
+	"    if (i >= 0) {"
+	"      this.param_values[i] = value;"
+	"    } else {"
+	"      this.append(name, value);"
+	"    }"
+	"  }"
 	"  has(name) {"
 	"    for(let i = 0; i < this.param_keys.length; i++) {"
 	"      if (this.param_keys[i] === name) {"
@@ -4254,10 +4301,11 @@ js_html_init(Buffer *buf)
 	"function w3m_querySelectorAll(element, sels, elements) {"
 	"  if (sels[0]) {"
 	"    for (let i = 0; i < element.children.length; i++) {"
-	"      if ((sels[0].tag == null || sels[0].tag == element.children[i].tagName) &&"
+	"      if ((sels[0].tag == null || sels[0].tag === element.children[i].tagName) &&"
 	"          (sels[0].class == null ||"
-	"           w3m_matchClassName(element.children[i].className, sels[0].class)) &&"
-	"          (sels[0].id == null || sels[0].id == element.children[i].id) &&"
+	"           (element.children[i].className &&"
+	"            w3m_matchClassName(element.children[i].className, sels[0].class))) &&"
+	"          (sels[0].id == null || sels[0].id === element.children[i].id) &&"
 	"          (sels[0].attr_key == null ||"
 	"           w3m_matchAttr(element.children[i], sels[0].attr_key, sels[0].attr_value))) {"
 	"        if (sels[1]) {"
@@ -4751,6 +4799,9 @@ js_html_init(Buffer *buf)
 
     if (rt == NULL) {
 	rt = JS_NewRuntime();
+#if 0
+	JS_SetCanBlock(rt, TRUE);
+#endif
     }
 
     ctx = JS_NewContext(rt);
@@ -4972,11 +5023,11 @@ js_eval2(JSContext *ctx, char *script) {
 
 #if 0
     beg = script;
-    const char seq2[] = "\"text node nodeType wrong\");";
+    const char seq2[] = "g=r.handle=function(b){";
     str = Strnew();
     while ((p = strstr(beg, seq2))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "console.log(document.firstChild);");
+	Strcat_charp(str, "console.log(b);console.log(a);console.log(arguments);console.log(n);");
         beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
@@ -5211,7 +5262,8 @@ find_form(JSContext *ctx, xmlNode *node)
 			    "  }"
 			    "  form;"
 			    "}", (char*)n->content)->ptr;
-		return JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+		return backtrace(ctx, script,
+				 JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 	    }
 	} else if (strcasecmp((char*)attr->name, "name") == 0) {
 	    n = attr->children;
@@ -5231,7 +5283,8 @@ find_form(JSContext *ctx, xmlNode *node)
 			    "    null;"
 			    "  }"
 			    "}", (char*)n->content)->ptr;
-		return JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG);
+		return backtrace(ctx, script,
+				 JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 	    }
 	}
     }
@@ -5248,7 +5301,8 @@ create_dtd(JSContext *ctx, xmlDtd *dtd, JSValue doc)
 			   dtd->name ? Sprintf("\"%s\"", dtd->name)->ptr : "null",
 			   dtd->ExternalID ? Sprintf("\"%s\"", dtd->ExternalID)->ptr : "null",
 			   dtd->SystemID ? Sprintf("\"%s\"", dtd->SystemID)->ptr : "null")->ptr;
-    args[0] = JS_EvalThis(ctx, doc, script, strlen(script), "<input>", EVAL_FLAG);
+    args[0] = backtrace(ctx, script, JS_EvalThis(ctx, doc, script, strlen(script),
+						 "<input>", EVAL_FLAG));
     args[1] = JS_EvalThis(ctx, doc, "this.firstChild;", 16, "<input>", EVAL_FLAG);
     JS_FreeValue(ctx, node_insert_before(ctx, doc, 2, args));
 }
@@ -5462,11 +5516,6 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 
     xmlFreeDoc(doc);
     xmlCleanupParser();
-
-    js_eval(ctx,
-	    "if (document.scripts && document.scripts.length > 0) {"
-	    "  document.currentScript = document.scripts[document.scripts.length - 1];"
-	    "}");
 
     return 1;
 
