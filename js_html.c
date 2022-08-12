@@ -176,7 +176,7 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     }
     prop = JS_GetPropertyStr(ctx, events, "push");
 
-    event = JS_NewObject(ctx);
+    event = JS_Eval(ctx, "new Event(null);", 16, "<input>", EVAL_FLAG);
     JS_SetPropertyStr(ctx, event, "type", JS_DupValue(ctx, argv[0]));
     JS_SetPropertyStr(ctx, event, "currentTarget", JS_DupValue(ctx, jsThis));
     JS_SetPropertyStr(ctx, event, "target", JS_DupValue(ctx, jsThis));
@@ -1520,12 +1520,6 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 	}
     }
 
-    val = JS_GetPropertyStr(ctx, argv[0], "parentNode");
-    if (JS_IsObject(val)) {
-	JS_FreeValue(ctx, node_remove_child(ctx, val, 1, argv));
-    }
-    JS_FreeValue(ctx, val);
-
     doc = JS_GetPropertyStr(ctx, jsThis, "ownerDocument");
     if (JS_IsObject(doc)) {
 	val = JS_GetPropertyStr(ctx, doc, "documentElement");
@@ -1542,6 +1536,12 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
     } else {
 	JS_FreeValue(ctx, doc);
     }
+
+    val = JS_GetPropertyStr(ctx, argv[0], "parentNode");
+    if (JS_IsObject(val)) {
+	JS_FreeValue(ctx, node_remove_child(ctx, val, 1, argv));
+    }
+    JS_FreeValue(ctx, val);
 
     val = JS_GetPropertyStr(ctx, argv[0], "id");
     if (JS_IsString(val)) {
@@ -1615,7 +1615,11 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 #endif
 
     if (iret >= 0) {
-	char *tag = get_cstr(ctx, argv[0]);
+	char *tag;
+	char *script;
+	val = JS_GetPropertyStr(ctx, argv[0], "tagName");
+	tag = get_cstr(ctx, val);
+	JS_FreeValue(ctx, val);
 
 	if (tag != NULL) {
 	    if (strcasecmp(tag, "script") == 0) {
@@ -1625,10 +1629,16 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 	    } else if (strcasecmp(tag, "a") == 0) {
 		/* XXX Ignore <area> tag which has href attribute. */
 		add_node_to(ctx, argv[0], "links");
+	    } else if (strcasecmp(tag, "form") == 0) {
+		JSValue doc1 = js_get_document(ctx);
+		JSValue doc2 = JS_GetPropertyStr(ctx, jsThis, "ownerDocument");
+		if (JS_VALUE_GET_PTR(doc1) != JS_VALUE_GET_PTR(doc2)) {
+		    add_node_to(ctx, argv[0], "forms");
+		}
+		JS_FreeValue(ctx, doc2);
 	    }
 #if 0
-	    else if (strcasecmp(tag, "form") == 0 ||
-		     strcasecmp(tag, "select") == 0 ||
+	    else if (strcasecmp(tag, "select") == 0 ||
 		     strcasecmp(tag, "input") == 0 ||
 		     strcasecmp(tag, "textarea") == 0 ||
 		     strasecmp(tag, "button") == 0) {
@@ -1639,7 +1649,7 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 
 #if 1
 	/* XXX for acid3 test 65 and 69 */
-	char *script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
+	script = Sprintf("w3m_element_onload(this.children[%d]);", iret)->ptr;
 	JS_FreeValue(ctx, backtrace(ctx, script,
 				    JS_EvalThis(ctx, jsThis, script, strlen(script),
 						"<input>", EVAL_FLAG)));
@@ -1702,10 +1712,16 @@ node_remove_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *a
 	} else if (strcasecmp(tag, "a") == 0) {
 	    /* XXX Ignore <area> tag which has href attribute. */
 	    remove_node_from(ctx, argv[0], "links");
+	} else  if (strcasecmp(tag, "form") == 0) {
+	    JSValue doc1 = js_get_document(ctx);
+	    JSValue doc2 = JS_GetPropertyStr(ctx, jsThis, "ownerDocument");
+	    if (JS_VALUE_GET_PTR(doc1) != JS_VALUE_GET_PTR(doc2)) {
+		remove_node_from(ctx, argv[0], "forms");
+	    }
+	    JS_FreeValue(ctx, doc2);
 	}
 #if 0
-	else if (strcasecmp(tag, "form") == 0 ||
-		 strcasecmp(tag, "select") == 0 ||
+	else if (strcasecmp(tag, "select") == 0 ||
 		 strcasecmp(tag, "input") == 0 ||
 		 strcasecmp(tag, "textarea") == 0 ||
 		 strasecmp(tag, "button") == 0) {
@@ -2353,13 +2369,13 @@ element_select(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 }
 
 static JSValue
-element_get_context(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+canvas_element_get_context(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     return canvas_rendering_context2d_new(ctx, jsThis, 0, NULL);
 }
 
 static JSValue
-element_to_data_url(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+canvas_element_to_data_url(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     log_msg("XXX: HTMLCanvasElement.toDataURL");
     return JS_NewString(ctx, "data:,");
@@ -2449,10 +2465,11 @@ static const JSCFunctionListEntry NodeFuncs[] = {
     JS_PROP_INT32_DEF("DOCUMENT_NODE", 9, 0),
     JS_PROP_INT32_DEF("DOCUMENT_TYPE_NODE", 10, 0),
     JS_PROP_INT32_DEF("DOCUMENT_FRAGMENT_NODE", 11, 0),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Node", JS_PROP_CONFIGURABLE),
 };
 
 static const JSCFunctionListEntry ElementFuncs[] = {
-    /* Element */
     JS_CGETSET_DEF("firstElementChild", node_first_child_get, NULL),
     JS_CGETSET_DEF("lastElementChild", node_last_child_get, NULL),
     JS_CFUNC_DEF("closest", 1, element_closest),
@@ -2474,7 +2491,10 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("className", element_class_name_get, element_class_name_set),
     JS_CFUNC_DEF("remove", 1, element_remove),
     JS_CGETSET_DEF("childElementCount", element_child_element_count_get, NULL),
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
+};
 
+static const JSCFunctionListEntry HTMLElementFuncs[] = {
     /* HTMLElement */
     JS_CFUNC_DEF("doScroll", 1, element_do_scroll), /* XXX Obsolete API */
     JS_CGETSET_DEF("offsetParent", element_offset_parent_get, NULL),
@@ -2488,9 +2508,6 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     /* XXX HTMLAnchorElement */
     JS_CGETSET_DEF("href", element_href_get, element_href_set),
 
-    /* XXX HTMLSelectElement */
-    JS_CFUNC_DEF("add", 1, node_append_child),
-
     /* XXX HTMLInputElement */
     JS_CFUNC_DEF("select", 1, element_select),
 
@@ -2498,16 +2515,28 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
     JS_CFUNC_DEF("getSVGDocument", 1, element_get_svg_document),
 
-    /* XXX HTMLCanvasElement only */
-    JS_CFUNC_DEF("getContext", 1, element_get_context),
-    JS_CFUNC_DEF("toDataURL", 1, element_to_data_url),
-
     /* XXX SVGTextContentElement */
     JS_CFUNC_DEF("getNumberOfChars", 1, element_get_number_of_chars),
+};
 
-    /* XXX HTMLFormElement */
+static const JSCFunctionListEntry HTMLCanvasElementFuncs[] = {
+    JS_CFUNC_DEF("getContext", 1, canvas_element_get_context),
+    JS_CFUNC_DEF("toDataURL", 1, canvas_element_to_data_url),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLCanvasElement", JS_PROP_CONFIGURABLE),
+};
+
+static const JSCFunctionListEntry HTMLFormElementFuncs[] = {
     JS_CFUNC_DEF("submit", 1, html_form_element_submit),
     JS_CFUNC_DEF("reset", 1, html_form_element_reset),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLFormElement", JS_PROP_CONFIGURABLE),
+};
+
+static const JSCFunctionListEntry HTMLSelectElementFuncs[] = {
+    JS_CFUNC_DEF("add", 1, node_append_child),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLSelectElement", JS_PROP_CONFIGURABLE),
 };
 
 static int
@@ -3626,7 +3655,8 @@ struct interval_callback_sort {
     int idx;
 };
 
-int compare_interval_callback(const void *n1, const void *n2)
+int
+compare_interval_callback(const void *n1, const void *n2)
 {
     if (((struct interval_callback_sort*)n1)->cur_delay >
 	((struct interval_callback_sort*)n2)->cur_delay) {
@@ -3639,7 +3669,8 @@ int compare_interval_callback(const void *n1, const void *n2)
     return 0;
 }
 
-int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
+int
+js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 {
     int i, j;
     int num = num_interval_callbacks;
@@ -4001,6 +4032,72 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	""
+	"globalThis.Event = class Event {"
+	"  constructor(type, ...args) {"
+	"    this.type = type;"
+	"    if (args.length > 0) {"
+	"      this.bubbles = args[0].bubbles;"
+	"      this.cancelable = args[0].cancelable;"
+	"      this.composed = args[0].composed;"
+	"    } else {"
+	"      this.bubbles = false;"
+	"      this.cancelable = false;"
+	"      this.composed = false;"
+	"    }"
+	"  }"
+	"  /* DEPRECATED */"
+	"  initEvent(type, bubbles, cancelable) {"
+	"    this.type = type;"
+	"    this.bubbles = bubbles;"
+	"    this.cancelable = cancelable;"
+	"  }"
+	"  preventDefault() {"
+	"    console.log(\"XXX: Event.preventDefault\");"
+	"  }"
+	"};"
+	""
+	"globalThis.CustomEvent = class CustomEvent extends Event {"
+	"  constructor(type, ...args) {"
+	"    if (args.length > 0) {"
+	"      super(type, args[0]);"
+	"      this.detail = args[0].detail;"
+	"    } else {"
+	"      super(type);"
+	"      this.detail = null;"
+	"    }"
+	"  }"
+	"  /* DEPRECATED */"
+	"  initCustomEvent(type, bubbles, cancelable, detail) {"
+	"    this.type = type;"
+	"    this.bubbles = bubbles;"
+	"    this.cancelable = cancelable;"
+	"    this.detail = detail;"
+	"  }"
+	"};"
+	""
+	"globalThis.UIEvent = class UIEvent extends Event {"
+	"  constructor(type, ...args) {"
+	"    super(type);"
+	"    if (args.length > 0) {"
+	"      this.detail = args[0].detail;"
+	"      this.view = args[0].view;"
+	"      this.sourceCapabilities = args[0].sourceCapabilities;"
+	"    } else {"
+	"      this.detail = 0;"
+	"      this.view = null;"
+	"      this.sourceCapabilities = null;"
+	"    }"
+	"  }"
+	"  /* DEPRECATED */"
+	"  initUIEvent(type, canBubble, cancelable, view, detail) {"
+	"    this.type = type;"
+	"    this.bubbles = canBubble;"
+	"    this.cancelable = cancelable;"
+	"    this.view = view;"
+	"    this.detail = detail;"
+	"  }"
+	"};"
+	""
 	"/* Element.attributes */"
 	"function w3m_elementAttributes(obj) {"
 	"  let attribute_keys = Object.keys(obj);"
@@ -4044,18 +4141,22 @@ js_html_init(Buffer *buf)
 	"    if (!init) {"
 	"      return;"
 	"    }"
-	"    if (init.charAt(0) === \"?\") {"
+	"    if (typeof init === \"string\") {"
 	"      init = init.slice(1);"
-	"    }"
-	"    let pairs = init.split(\"&\");"
-	"    for (let i = 0; i < pairs.length; i++) {"
-	"      let array = pairs[i].split(\"=\");"
-	"      this.param_keys.push(array[0]);"
-	"      if (array.length == 1) {"
-	"        this.param_values.push(\"\");"
-	"      } else {"
-	"        this.param_values.push(array[1]);"
+	"      let pairs = init.split(\"&\");"
+	"      for (let i = 0; i < pairs.length; i++) {"
+	"        let array = pairs[i].split(\"=\");"
+	"        this.param_keys.push(array[0]);"
+	"        if (array.length == 1) {"
+	"          this.param_values.push(\"\");"
+	"        } else {"
+	"          this.param_values.push(array[1]);"
+	"        }"
 	"      }"
+	"    } else if (init.param_keys) {"
+	"      /* init == URLSearchParams */"
+	"      this.param_keys = Array.from(init.param_keys);"
+	"      this.param_values = Array.from(init.param_values);"
 	"    }"
 	"  }"
 	"  append(name, value) {"
@@ -4137,7 +4238,6 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	""
-	""
 	"function importScripts(...scripts) {"
 	"  console.log(\"XXX: importScripts\");"
 	"}"
@@ -4156,7 +4256,7 @@ js_html_init(Buffer *buf)
 #if 1
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].nodeType + \")\");"
+	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].nodeType + \" \" + e.children[i].onload + \")\");"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -4167,14 +4267,17 @@ js_html_init(Buffer *buf)
 #endif
 	"function w3m_initDocumentTree(doc) {"
 	"  doc.ownerDocument = doc;"
-	"  doc.documentElement = doc.createElement(\"HTML\");"
-	"  doc.firstElementChild = doc.lastElementChild = doc.scrollingElement = doc.documentElement;"
-	"  doc.children = doc.documentElement.children;"
+	"  doc.children = new HTMLCollection();"
 	"  doc.childNodes = doc.children; /* XXX NodeList */"
+	"  let html = doc.createElement(\"HTML\");"
+	"  doc.appendChild(html);"
+	"  doc.firstElementChild = doc.lastElementChild = doc.scrollingElement ="
+	"    doc.documentElement = html;"
 	"  doc.childElementCount = 1;"
 	"  doc.documentElement.appendChild(doc.createElement(\"HEAD\"));"
 	"  doc.documentElement.appendChild(doc.createElement(\"BODY\"));"
 	"  doc.activeElement = doc.body;"
+	"  doc.forms = new HTMLCollection();"
 	"  doc.scripts = new HTMLCollection();"
 	"  doc.images = new HTMLCollection();"
 	"  doc.links = new HTMLCollection();"
@@ -4488,9 +4591,6 @@ js_html_init(Buffer *buf)
 	"  doc.getElementsByTagName = function(name) {"
 	"    name = name.toUpperCase();"
 	"    if (name === \"FORM\") {"
-	"      if (!this.forms) {"
-	"        this.forms = document.forms /* new HTMLCollection() */;"
-	"      }"
 	"      return this.forms;"
 	"    } else {"
 	"      let elements = new HTMLCollection();"
@@ -4578,9 +4678,15 @@ js_html_init(Buffer *buf)
 	"    }"
 	"  };"
 	""
-	"  doc.createEvent = function() {"
-	"    console.log(\"XXX: Document.createEvent\");"
-	"    return new Object();"
+	"  /* DEPRECATED */"
+	"  doc.createEvent = function(type) {"
+	"    if (type === \"UIEvent\" || type === \"UIEvents\") {"
+	"      return new UIEvent(type);"
+	"    } else if (type === \"CustomEvent\" || type === \"CustomEvents\") {"
+	"      return new CustomEvent(type);"
+	"    } else {"
+	"      return new Event(type);"
+	"    }"
 	"  };"
 	""
 	"  doc.createRange = function() {"
@@ -4761,7 +4867,7 @@ js_html_init(Buffer *buf)
 	"function w3m_element_onload(element) {"
 	"  w3m_onload(element);"
 	"  for (let i = 0; i < element.children.length; i++) {"
-	"    w3m_onload(element.children[i]);"
+	"    w3m_element_onload(element.children[i]);"
 	"  }"
 	"}"
 	"function w3m_reset_onload(obj) {"
@@ -4822,26 +4928,30 @@ js_html_init(Buffer *buf)
 		 sizeof(ElementFuncs) / sizeof(ElementFuncs[0]), &ElementClass,
 		 element_new, NodeClassID);
 
-    create_class(ctx, gl, &HTMLFormElementClassID, "HTMLFormElement", NULL, 0,
-		 &HTMLFormElementClass, html_form_element_new, ElementClassID);
+    create_class(ctx, gl, &HTMLElementClassID, "HTMLElement", HTMLElementFuncs,
+		 sizeof(HTMLElementFuncs) / sizeof(HTMLElementFuncs[0]), &HTMLElementClass,
+		 html_element_new, ElementClassID);
 
-    create_class(ctx, gl, &HTMLElementClassID, "HTMLElement", NULL, 0,
-		 &HTMLElementClass, html_element_new, ElementClassID);
+    create_class(ctx, gl, &HTMLFormElementClassID, "HTMLFormElement", HTMLFormElementFuncs,
+		 sizeof(HTMLFormElementFuncs) / sizeof(HTMLFormElementFuncs[0]),
+		 &HTMLFormElementClass, html_form_element_new, HTMLElementClassID);
 
     create_class(ctx, gl, &HTMLImageElementClassID, "HTMLImageElement", NULL, 0,
-		 &HTMLImageElementClass, html_image_element_new, ElementClassID);
+		 &HTMLImageElementClass, html_image_element_new, HTMLElementClassID);
 
-    create_class(ctx, gl, &HTMLSelectElementClassID, "HTMLSelectElement", NULL, 0,
-		 &HTMLSelectElementClass, html_select_element_new, ElementClassID);
+    create_class(ctx, gl, &HTMLSelectElementClassID, "HTMLSelectElement", HTMLSelectElementFuncs,
+		 sizeof(HTMLSelectElementFuncs) / sizeof(HTMLSelectElementFuncs[0]),
+		 &HTMLSelectElementClass, html_select_element_new, HTMLElementClassID);
 
     create_class(ctx, gl, &HTMLScriptElementClassID, "HTMLScriptElement", NULL, 0,
-		 &HTMLScriptElementClass, html_script_element_new, ElementClassID);
+		 &HTMLScriptElementClass, html_script_element_new, HTMLElementClassID);
 
-    create_class(ctx, gl, &HTMLCanvasElementClassID, "HTMLCanvasElement", NULL, 0,
-		 &HTMLCanvasElementClass, html_canvas_element_new, ElementClassID);
+    create_class(ctx, gl, &HTMLCanvasElementClassID, "HTMLCanvasElement", HTMLCanvasElementFuncs,
+		 sizeof(HTMLCanvasElementFuncs) / sizeof(HTMLCanvasElementFuncs[0]),
+		 &HTMLCanvasElementClass, html_canvas_element_new, HTMLElementClassID);
 
     create_class(ctx, gl, &SVGElementClassID, "SVGElement", NULL, 0,
-		 &SVGElementClass, svg_element_new, ElementClassID);
+		 &SVGElementClass, svg_element_new, HTMLElementClassID);
 
     create_class(ctx, gl, &DocumentClassID, "Document", DocumentFuncs,
 		 sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]), &DocumentClass,
@@ -4970,13 +5080,14 @@ js_eval2(JSContext *ctx, char *script) {
     Strcat_charp(str, beg);
     script = str->ptr;
 #elif 0
+    /* frikaetter.com (0xde0b6b3a7640080.toFixed(0) => invalid number literal. */
     char *beg = script;
     char *p;
-    const char seq[] = "var tarNode=aNode;";
+    const char seq[] = "0xde0b6b3a7640080";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "if (! aNode) try { throw new Error('original'); } catch (e) { console.log(e.stack); }");
+	Strcat_charp(str, "==0xde0b6b3a7640080||1000000000000000128.");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -5023,11 +5134,11 @@ js_eval2(JSContext *ctx, char *script) {
 
 #if 0
     beg = script;
-    const char seq2[] = "g=r.handle=function(b){";
+    const char seq2[] = "var check = function (c, e) {";
     str = Strnew();
     while ((p = strstr(beg, seq2))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "console.log(b);console.log(a);console.log(arguments);console.log(n);");
+	Strcat_charp(str, "console.log(\"HELO:\"+ c);");
         beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
@@ -5483,10 +5594,11 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
 	JSValue element;
 	xmlAttr *attr;
+	xmlNode *next_tmp = NULL;
 
-	if (strcmp((char*)node->name, "head") == 0) {
+	if (strcasecmp((char*)node->name, "head") == 0) {
 	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
-	} else if (strcmp((char*)node->name, "body") == 0) {
+	} else if (strcasecmp((char*)node->name, "body") == 0) {
 	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
 	} else {
 #ifdef DOM_DEBUG
@@ -5494,7 +5606,9 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 	    fprintf(fp, "(orphan element %s)\n", node->name);
 	    fclose(fp);
 #endif
-	    continue;
+	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
+	    next_tmp = node->next;
+	    node->next = NULL;
 	}
 
 	for (attr = node->properties; attr != NULL; attr = attr->next) {
@@ -5511,7 +5625,12 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 	    }
 	}
 
-	create_tree(ctx, node->children, element, 0);
+	if (next_tmp) {
+	    create_tree(ctx, node, element, 0);
+	    node->next = next_tmp;
+	} else {
+	    create_tree(ctx, node->children, element, 0);
+	}
     }
 
     xmlFreeDoc(doc);

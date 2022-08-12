@@ -301,12 +301,12 @@ update_forms(Buffer *buf, void *interp)
     int i;
 
     js_eval(interp,
-	    "if (document.forms) {"
+	    "if (document.forms.length > 0) {"
 	    "  for (let i = 0; i < document.forms.length; i++) {"
 	    "    document.body.removeChild(document.forms[i]);"
 	    "  }"
-	    "}"
-	    "document.forms = new HTMLCollection();");
+	    "  document.forms = new HTMLCollection();"
+	    "}");
 
     /* For document.children.length in script.c */
     if (buf->formlist != NULL) {
