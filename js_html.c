@@ -3,13 +3,15 @@
 #include "js_html.h"
 #include <sys/utsname.h>
 
-#define NUM_TAGNAMES 6
+#define NUM_TAGNAMES 8
 #define TN_FORM 0
 #define TN_IMG 1
 #define TN_SCRIPT 2
 #define TN_SELECT 3
 #define TN_CANVAS 4
 #define TN_SVG 5
+#define TN_IFRAME 6
+#define TN_OBJECT 7
 
 typedef struct _CtxState {
     JSValue tagnames[NUM_TAGNAMES];
@@ -36,6 +38,8 @@ static JSClassID HTMLImageElementClassID;
 static JSClassID HTMLSelectElementClassID;
 static JSClassID HTMLScriptElementClassID;
 static JSClassID HTMLCanvasElementClassID;
+static JSClassID HTMLIFrameElementClassID;
+static JSClassID HTMLObjectElementClassID;
 static JSClassID ElementClassID;
 static JSClassID NodeClassID;
 static JSClassID SVGElementClassID;
@@ -48,6 +52,9 @@ static JSRuntime *rt;
 
 int term_ppc;
 int term_ppl;
+
+#define BACKTRACE(ctx) \
+    js_eval(ctx, "try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }")
 
 #ifdef USE_LIBXML2
 #if 0
@@ -1376,6 +1383,48 @@ html_script_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCo
     return obj;
 }
 
+static const JSClassDef HTMLIFrameElementClass = {
+    "HTMLIFrameElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+html_iframe_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+    CtxState *ctxstate;
+
+    ctxstate = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(ctxstate->tagnames[TN_IFRAME])) {
+	ctxstate->tagnames[TN_IFRAME] = JS_NewString(ctx, "IFRAME");
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLIFrameElementClassID);
+    set_element_property(ctx, obj, ctxstate->tagnames[TN_IFRAME]);
+
+    return obj;
+}
+
+static const JSClassDef HTMLObjectElementClass = {
+    "HTMLObjectElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
+};
+
+static JSValue
+html_object_element_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue obj;
+    CtxState *ctxstate;
+
+    ctxstate = JS_GetContextOpaque(ctx);
+    if (JS_IsUndefined(ctxstate->tagnames[TN_OBJECT])) {
+	ctxstate->tagnames[TN_OBJECT] = JS_NewString(ctx, "OBJECT");
+    }
+
+    obj = JS_NewObjectClass(ctx, HTMLObjectElementClassID);
+    set_element_property(ctx, obj, ctxstate->tagnames[TN_OBJECT]);
+
+    return obj;
+}
+
 static const JSClassDef HTMLCanvasElementClass = {
     "HTMLCanvasElement", NULL /* finalizer */, NULL /* gc_mark */, NULL /* call */, NULL
 };
@@ -1933,7 +1982,7 @@ node_previous_sibling_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
-element_content_window_get(JSContext *ctx, JSValueConst jsThis)
+iframe_content_window_get(JSContext *ctx, JSValueConst jsThis)
 {
     /* XXX global == window */
     return JS_GetGlobalObject(ctx);
@@ -2116,7 +2165,7 @@ element_get_number_of_chars(JSContext *ctx, JSValueConst jsThis, int argc, JSVal
 }
 
 static JSValue
-element_get_svg_document(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+iframe_get_svg_document(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     return JS_GetPropertyStr(ctx, jsThis, "contentDocument");
 }
@@ -2511,10 +2560,6 @@ static const JSCFunctionListEntry HTMLElementFuncs[] = {
     /* XXX HTMLInputElement */
     JS_CFUNC_DEF("select", 1, element_select),
 
-    /* XXX HTMLIFrameElement only */
-    JS_CGETSET_DEF("contentWindow", element_content_window_get, NULL),
-    JS_CFUNC_DEF("getSVGDocument", 1, element_get_svg_document),
-
     /* XXX SVGTextContentElement */
     JS_CFUNC_DEF("getNumberOfChars", 1, element_get_number_of_chars),
 };
@@ -2537,6 +2582,20 @@ static const JSCFunctionListEntry HTMLSelectElementFuncs[] = {
     JS_CFUNC_DEF("add", 1, node_append_child),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLSelectElement", JS_PROP_CONFIGURABLE),
+};
+
+static const JSCFunctionListEntry HTMLIFrameElementFuncs[] = {
+    JS_CGETSET_DEF("contentWindow", iframe_content_window_get, NULL),
+    JS_CFUNC_DEF("getSVGDocument", 1, iframe_get_svg_document),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLIFrameElement", JS_PROP_CONFIGURABLE),
+};
+
+static const JSCFunctionListEntry HTMLObjectElementFuncs[] = {
+    JS_CGETSET_DEF("contentWindow", iframe_content_window_get, NULL),
+    JS_CFUNC_DEF("getSVGDocument", 1, iframe_get_svg_document),
+
+    JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLObjectElement", JS_PROP_CONFIGURABLE),
 };
 
 static int
@@ -3164,6 +3223,8 @@ xml_http_request_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst
 
     obj = JS_NewObjectClass(ctx, XMLHttpRequestClassID);
     JS_SetPropertyStr(ctx, obj, "readyState", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "timeout", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, obj, "withCredentials", JS_FALSE);
 
     state = (XMLHttpRequestState *)GC_MALLOC_UNCOLLECTABLE(sizeof(XMLHttpRequestState));
     JS_SetOpaque(obj, state);
@@ -3307,7 +3368,7 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JSValue response;
     char *ctype;
     const char *beg_events[] = { "loadstart", "onloadstart" };
-    const char *end_events[] = { "progress", "load", "onload", "loadend", "onloadend", "onreadystatechange" };
+    const char *end_events[] = { "progress", "load", "onload", "loadend", "onloadend", "readystatechange", "onreadystatechange" };
     int i;
     FormList *request = NULL;
     int orig_ct;
@@ -3550,7 +3611,7 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	return JS_EXCEPTION;
     }
 
-    if (!JS_IsFunction(ctx, argv[0])) {
+    if (!JS_IsString(argv[0]) && !JS_IsFunction(ctx, argv[0])) {
 	log_msg("setInterval: not a function");
 	return JS_UNDEFINED;
     }
@@ -3698,17 +3759,26 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 		/* interval_callbacks[i] can be destroyed in JS_Call() below. */
 		ctx = interval_callbacks[i].ctx;
 		CtxState *ctxstate = JS_GetContextOpaque(ctx);
+		JSValue val;
+		if (JS_IsString(interval_callbacks[i].func)) {
+		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
+		    val = backtrace(ctx, script,
+				    JS_Eval(interval_callbacks[i].ctx, script,
+					    strlen(script), "<input>", EVAL_FLAG));
+		    JS_FreeCString(ctx, script);
+		} else {
 #ifdef SCRIPT_DEBUG
-		const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
+		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
 #endif
-		JSValue val = backtrace(ctx, script ? script : "interval/timeout func",
-					JS_Call(interval_callbacks[i].ctx,
-						interval_callbacks[i].func,
-						JS_NULL, interval_callbacks[i].argc,
-						interval_callbacks[i].argv));
+		    val = backtrace(ctx, script ? script : "interval/timeout func",
+				    JS_Call(interval_callbacks[i].ctx,
+					    interval_callbacks[i].func,
+					    JS_NULL, interval_callbacks[i].argc,
+					    interval_callbacks[i].argv));
 #ifdef SCRIPT_DEBUG
-		JS_FreeCString(ctx, script);
+		    JS_FreeCString(ctx, script);
 #endif
+		}
 		JS_FreeValue(ctx, val);
 		if (ctxstate->buf == buf) {
 		    if (executed == 0) {
@@ -3943,6 +4013,8 @@ js_html_init(Buffer *buf)
 	"  }"
 	"  values() { return this; }"
 	"};"
+	""
+	"globalThis.DOMStringList = class DOMStringList extends DOMTokenList {};"
 	""
 	"globalThis.DOMException = class DOMException {"
 	"  constructor(...args) {"
@@ -4251,6 +4323,14 @@ js_html_init(Buffer *buf)
 	"    dst.appendChild(element);"
 	"    w3m_cloneNode(element, src.childNodes[i]);"
 	"  }"
+	"}"
+	""
+	"globalThis.PromiseRejectionEvent = class PromiseRejectionEvent extends Event {"
+	"  constructor(type, param) {"
+	"    super(type);"
+	"    this.promise = param.promise;"
+	"    this.reason = param.reason;"
+	"  }"
 	"}";
     const char script2[] =
 #if 1
@@ -4451,6 +4531,10 @@ js_html_init(Buffer *buf)
 	"      element = new HTMLCanvasElement();"
 	"    } else if (tagname === \"SVG\") {"
 	"      element = new SVGElement();"
+	"    } else if (tagname === \"IFRAME\") {"
+	"      element = new HTMLIFrameElement();"
+	"    } else if (tagname === \"OBJECT\") {"
+	"      element = new HTMLObjectElement();"
 	"    } else {"
 	"      element = new HTMLElement(tagname);"
 	"    }"
@@ -4703,7 +4787,11 @@ js_html_init(Buffer *buf)
 	"  doc.execCommand = function(cmdName, showDefaultUI, valueArgument) {"
 	"    console.log(\"XXX Document.execCommand (DEPRECATED)\");"
 	"    return false;"
-	"  }"
+	"  };"
+	""
+	"  doc.elementFromPoint = function(x, y) {"
+	"    return this.body;"
+	"  };"
 	"}"
 	""
 	"function w3m_textNodesToStr(node) {"
@@ -4895,6 +4983,199 @@ js_html_init(Buffer *buf)
 	"    console.log(\"XXX: URL.revokeObjectURL\");"
 	"  }"
 	"};";
+    const char script3[] =
+	"globalThis.IDBRequest = class IDBRequest {"
+	"  constructor(result, source) {"
+	"    this.result = result;"
+	"    this.readyState = \"done\";"
+	"    this.source = source;"
+	"  }"
+	"  get transaction() {"
+	"    console.log(\"XXX: IDBRequest.transaction\");"
+	"    return null;"
+	"  }"
+	"};"
+	"globalThis.IDBOpenDBRequest = class IDBOpenDBRequest extends IDBRequest {};"
+	"var w3m_requests = new Array();"
+	"function w3m_idbrequest(result, source) {"
+	"  let req = IDBRequest(result, source);"
+	"  w3m_requests.push(req);"
+	"  return req;"
+	"}"
+	"function w3m_invoke_idbrequests() {"
+	"  if (w3m_requests.length > 0) {"
+	"    for (let i = 0; i < w3m_requests.length; i++) {"
+	"      if (w3m_requests[i].onsuccess) {"
+	"        w3m_requests[i].onsuccess();"
+	"      }"
+	"    }"
+	"    w3m_requests = new Array();"
+	"  }"
+	"}"
+	"globalThis.IDBIndex = class IDBIndex {"
+	"  constructor(name, keyPath, objectStore) {"
+	"    this.name = name;"
+	"    this.keyPath = keyPath;"
+	"    this.objectStore = objectStore;"
+	"  }"
+	"  get(...args) {"
+	"    if (args.length > 0) {"
+	"      /* XXX */"
+	"      return this.objectStore.get(key);"
+	"    } else {"
+	"      return w3m_idbrequest(null, this);"
+	"    }"
+	"  }"
+	"};"
+	"globalThis.IDBObjectStore = class IDBObjectStore {"
+	"  constructor(name, ...args) {"
+	"    if (args.length > 0) {"
+	"      this.autoIncrement = args[0].autoIncrement;"
+	"      this.keyPath = args[0].keyPath;"
+	"      this.keys = null;"
+	"    } else {"
+	"      this.autoIncrement = false;"
+	"      this.keyPath = null;"
+	"      this.keys = new Array();"
+	"    }"
+	"    tihs.values = new Array();"
+	"    this.incrementKey = 0;"
+	"    this.name = name;"
+	"  }"
+	"  put(item, ...args) {"
+	"    let keyval;"
+	"    if (args.length == 0) {"
+	"      keyval = this.incrementKey + 1;"
+	"    } else {"
+	"      keyval = args[0];"
+	"    }"
+	"    if (this.keys) {"
+	"      let i;"
+	"      if (args.length > 0 && (i = this.keys.indexOf(keyval)) >= 0) {"
+	"        this.keys[i] = keyval;"
+	"      } else {"
+	"        this.keys.push(keyval);"
+	"      }"
+	"    } else {"
+	"      item[this.keyPath] = keyval;"
+	"    }"
+	"    this.values.push(item);"
+	"    return w3m_idbrequest(null, this);"
+	"  }"
+	"  add(value, ...args) {"
+	"    let keyval;"
+	"    if (args.length == 0) {"
+	"      keyval = this.incrementKey + 1;"
+	"    } else {"
+	"      keyval = args[0];"
+	"    }"
+	"    if (this.keys) {"
+	"      let i;"
+	"      if (args.length > 0 && (i = this.keys.indexOf(keyval)) >= 0) {"
+	"        throw \"ConstraintError\";"
+	"      } else {"
+	"        this.keys.push(keyval);"
+	"      }"
+	"    } else {"
+	"      if (item[this.keyPath] == undefined) {"
+	"        throw \"ConstraintError\";"
+	"      }"
+	"      item[this.keyPath] = keyval;"
+	"    }"
+	"    this.values.push(item);"
+	"    return w3m_idbrequest(null, this);"
+	"  }"
+	"  get(key) {"
+	"    let i;"
+	"    if (this.key) {"
+	"      for (i = 0; i < this.keys.length; i++) {"
+	"        if (this.keys[i] === key) {"
+	"          return w3m_idbrequest(this.values[i], this);"
+	"        }"
+	"      }"
+	"    } else {"
+	"      for (i = 0; i < this.values.length; i++) {"
+	"        if (this.values[i][this.keyPath] === key) {"
+	"          return w3m_idbrequest(this.values[i], this);"
+	"        }"
+	"      }"
+	"    }"
+	"  }"
+	"  getAll() {"
+	"    return w3m_idbrequest(this.values, this);"
+	"  }"
+	"  index(name) {"
+	"    return new IDBIndex(name, this.keyPath, this);"
+	"  }"
+	"};"
+	"globalThis.IDBTransaction = class IDBTransaction {"
+	"  constructor(stores) {"
+	"    this.stores = stores;"
+	"  }"
+	"  objectStore(name) {"
+	"    for (let i = 0; i < this.stores.length; i++) {"
+	"      if (this.stores[i].name === name) {"
+	"        return this.stores[i];"
+	"      }"
+	"    }"
+	"    throw \"Not found\";"
+	"  }"
+	"};"
+	"globalThis.IDBDatabase = class IDBDatabase {"
+	"  constructor() {"
+	"    this.objectStoreNames = new DOMStringList();"
+	"    this.objectStores = new Array();"
+	"  }"
+	"  createObjectStore(name, ...args) {"
+	"    let store;"
+	"    if (args.length > 0) {"
+	"      store = new IDBObjectStore(name, args[0]);"
+	"    } else {"
+	"      store = new IDBObjectStore(name);"
+	"    }"
+	"    this.objectStores.push(name);"
+	"    this.objectStoreNames.push(store);"
+	"    return store;"
+	"  }"
+	"  deleteObjectStore(name) {"
+	"    for (let i = 0; i < this.objectStoreNames.length; i++) {"
+	"      if (this.objectStoreNames[i] === name) {"
+	"        this.objectStoreNames.splice(i, 1);"
+	"        this.objectStores(i, 1);"
+	"        break;"
+	"      }"
+	"    }"
+	"  }"
+	"  transaction(storeNames, ...args) {"
+	"    let array = new Array();"
+	"    if (!Array.isArray(storeNames)) {"
+	"      for (let i = 0; i < this.objectStores.length; i++) {"
+	"        if (this.objectStores[i].name === storeNames) {"
+	"          array.push(this.objectStores[i]);"
+	"        }"
+	"      }"
+	"    } else {"
+	"      for (let i = 0; i < this.objectStores.length; i++) {"
+	"        for (let j = 0; j < storeNames.length; j++) {"
+	"          if (this.objectStores[i].name === storeNames[j]) {"
+	"            array.push(this.objectStores[i]);"
+	"            break;"
+	"          }"
+	"        }"
+	"      }"
+	"    }"
+	"    return new IDBTransaction(array);"
+	"  }"
+	"};"
+	"globalThis.IDBFactory = class IDBFactory {"
+	"  static open(name, version) {"
+	"    return new IDBOpenDBRequest(new IBDatabase(), this);"
+	"  }"
+	"  static deleteDatabase(name, args) {"
+	"    return new IDBOpenDBRequest(null, this);"
+	"  }"
+	"};"
+	;
 
     if (term_ppc == 0) {
 	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
@@ -4953,6 +5234,14 @@ js_html_init(Buffer *buf)
     create_class(ctx, gl, &SVGElementClassID, "SVGElement", NULL, 0,
 		 &SVGElementClass, svg_element_new, HTMLElementClassID);
 
+    create_class(ctx, gl, &HTMLIFrameElementClassID, "HTMLIFrameElement", HTMLIFrameElementFuncs,
+		 sizeof(HTMLIFrameElementFuncs) / sizeof(HTMLIFrameElementFuncs[0]),
+		 &HTMLIFrameElementClass, html_iframe_element_new, HTMLElementClassID);
+
+    create_class(ctx, gl, &HTMLObjectElementClassID, "HTMLObjectElement", HTMLObjectElementFuncs,
+		 sizeof(HTMLObjectElementFuncs) / sizeof(HTMLObjectElementFuncs[0]),
+		 &HTMLObjectElementClass, html_object_element_new, HTMLElementClassID);
+
     create_class(ctx, gl, &DocumentClassID, "Document", DocumentFuncs,
 		 sizeof(DocumentFuncs) / sizeof(DocumentFuncs[0]), &DocumentClass,
 		 document_new, NodeClassID);
@@ -4976,6 +5265,8 @@ js_html_init(Buffer *buf)
 
     JS_FreeValue(ctx, backtrace(ctx, script2,
 				JS_Eval(ctx, script2, sizeof(script2) - 1, "<input>", EVAL_FLAG)));
+    JS_FreeValue(ctx, backtrace(ctx, script3,
+				JS_Eval(ctx, script3, sizeof(script3) - 1, "<input>", EVAL_FLAG)));
 
     /* window object */
     state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
@@ -5016,6 +5307,12 @@ js_html_init(Buffer *buf)
     ctxstate->buf = buf;
     ctxstate->document = JS_UNDEFINED;
     JS_SetContextOpaque(ctx, ctxstate);
+
+    js_eval(ctx,
+	    "Object.setPrototypeOf(globalThis, setInterval);"
+	    "Object.setPrototypeOf(globalThis, setTimeout);"
+	    "Object.setPrototypeOf(globalThis, clearInterval);"
+	    "Object.setPrototypeOf(globalThis, clearTimeout);");
 
     return ctx;
 }
@@ -5070,11 +5367,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "function jsDoCompressAct(){";
+    const char seq[] = "c=Object.getPrototypeOf&&Object.getPrototypeOf(e);";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"START COMPRESS ACT\");");
+	Strcat_charp(str, "console.log(\"HELO\"+c);console.log(e.setTimeout);console.log(c.setTimeout);");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -5145,6 +5442,21 @@ js_eval2(JSContext *ctx, char *script) {
     script = str->ptr;
 #endif
 #endif
+
+    if (strncmp(script, "func_id:", 8) == 0) {
+	int idx = atoi(script + 8);
+	CtxState *ctxstate = JS_GetContextOpaque(ctx);
+	if (ctxstate->nfuncs >= idx + 1) {
+#ifdef SCRIPT_DEBUG
+	    const char *str = JS_ToCString(ctx, ctxstate->funcs[idx]);
+	    script = Sprintf("%s: %s", script, str)->ptr;
+	    JS_FreeCString(ctx, str);
+#endif
+	    return backtrace(ctx, script, JS_Call(ctx, ctxstate->funcs[idx],
+							 JS_UNDEFINED, 0, NULL));
+	}
+    }
+
     return backtrace(ctx, script,
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 }
@@ -5166,6 +5478,15 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
 		jsThis = JS_NewObject(ctx);
 		JS_SetPropertyStr(ctx, jsThis, "form", form);
 	    }
+
+#ifdef SCRIPT_DEBUG
+	    {
+		const char *str = JS_ToCString(ctx, ctxstate->funcs[idx]);
+		script = Sprintf("%s: %s", script, str)->ptr;
+		JS_FreeCString(ctx, str);
+	    }
+#endif
+
 	    ret = backtrace(ctx, script, JS_Call(ctx, ctxstate->funcs[idx], jsThis, 0, NULL));
 	    JS_FreeValue(ctx, jsThis);
 
@@ -5458,6 +5779,10 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		jsnode = html_form_element_new(ctx, jsparent, 0, NULL);
 	    } else if (strcasecmp((char*)node->name, "SELECT") == 0) {
 		jsnode = html_select_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "OBJECT") == 0) {
+		jsnode = html_object_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "IFRAME") == 0) {
+		jsnode = html_iframe_element_new(ctx, jsparent, 0, NULL);
 	    } else {
 		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);

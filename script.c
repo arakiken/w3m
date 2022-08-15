@@ -110,7 +110,7 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
 
     ov = ol = "";
     if (opt->value)
-	ov = i2us(opt->value)->ptr;
+	ov = escape_value(i2us(opt->value))->ptr;
     if (opt->label)
 	ol = i2us(opt->label)->ptr;
 
@@ -555,6 +555,8 @@ script_buf2js(Buffer *buf, void *interp)
 	load_js(interp, AUXBIN_DIR "/js/Blob.js");
 	/* https://github.com/LiosK/UUID.js/ */
 	load_js(interp, AUXBIN_DIR "/js/uuid.js");
+	/* https://github.com/github/fetch/ */
+	load_js(interp, AUXBIN_DIR "/js/fetch.js");
 	/* https://github.com/megawac/MutationObserver.js/ */
 	if (!load_js(interp, AUXBIN_DIR "/js/message_channel.js")) {
 	    js_eval(interp,
@@ -1384,6 +1386,9 @@ int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
     }
 
     ret = js_trigger_interval(buf, msec, buf2js ? update_forms : NULL);
+    if (js2buf) {
+	js_eval(buf->script_interp, "w3m_invoke_idbrequests();");
+    }
     if ((ret && js2buf) || js2buf > 0) {
 	Str str = script_js2buf(buf, buf->script_interp);
 #ifdef SCRIPT_DEBUG
