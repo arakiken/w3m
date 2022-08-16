@@ -1035,6 +1035,7 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CFUNC_DEF("replace", 1, location_replace),
     JS_CFUNC_DEF("reload", 1, location_reload),
     JS_CFUNC_DEF("toString", 1, location_to_string),
+    JS_CFUNC_DEF("toJSON", 1, location_to_string), /* XXX URL method */
     JS_CGETSET_DEF("href", location_href_get, location_href_set),
     JS_CGETSET_DEF("protocol", location_protocol_get, location_protocol_set),
     JS_CGETSET_DEF("host", location_host_get, location_host_set),
@@ -1042,7 +1043,7 @@ static const JSCFunctionListEntry LocationFuncs[] = {
     JS_CGETSET_DEF("port", location_port_get, location_port_set),
     JS_CGETSET_DEF("pathname", location_pathname_get, location_pathname_set),
     JS_CGETSET_DEF("search", location_search_get, location_search_set),
-    JS_CGETSET_DEF("searchParams", location_search_params_get, NULL),
+    JS_CGETSET_DEF("searchParams", location_search_params_get, NULL), /* XXX URL property */
     JS_CGETSET_DEF("hash", location_hash_get, location_hash_set),
     JS_CGETSET_DEF("username", location_username_get, location_username_set),
     JS_CGETSET_DEF("password", location_password_get, location_password_set),
@@ -3165,8 +3166,8 @@ log_to_file(JSContext *ctx, const char *head, int argc, JSValueConst *argv)
 	for (i = 0; i < argc; i++) {
 	    const char *str = JS_ToCString(ctx, argv[i]);
 	    fwrite(" ", 1, 1, fp);
-	    JS_FreeCString(ctx, str);
 	    fwrite(str, strlen(str), 1, fp);
+	    JS_FreeCString(ctx, str);
 	}
 	fwrite("\n", 1, 1, fp);
 
@@ -3469,7 +3470,10 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JS_SetPropertyStr(ctx, jsThis, "responseURL",
 		      JS_NewString(ctx, parsedURL2Str(&ctxstate->buf->currentURL)->ptr));
 
-    response = JS_NewStringLen(ctx, str->ptr, str->length);
+    JS_SetPropertyStr(ctx, jsThis, "statusText",
+		      JS_NewString(ctx, state->response_headers->first->ptr));
+
+    response = JS_NewStringLen(ctx, str->ptr, str->length); /* XXX */
     JS_SetPropertyStr(ctx, jsThis, "responseText", response);
 
     ctype = checkHeader(header_buf, "Content-Type");
@@ -5038,7 +5042,7 @@ js_html_init(Buffer *buf)
 	"      this.keyPath = null;"
 	"      this.keys = new Array();"
 	"    }"
-	"    tihs.values = new Array();"
+	"    this.values = new Array();"
 	"    this.incrementKey = 0;"
 	"    this.name = name;"
 	"  }"
@@ -5174,8 +5178,7 @@ js_html_init(Buffer *buf)
 	"  static deleteDatabase(name, args) {"
 	"    return new IDBOpenDBRequest(null, this);"
 	"  }"
-	"};"
-	;
+	"};";
 
     if (term_ppc == 0) {
 	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
@@ -5367,12 +5370,35 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "c=Object.getPrototypeOf&&Object.getPrototypeOf(e);";
+    /*const char seq[] = "if(4===u.readyState){var r=m(e,u);0===u.status?n(r):t(r)";*/
+    const char seq[] = "var t=e.headers,n=t&&t[\"content-type\"];";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"HELO\"+c);console.log(e.setTimeout);console.log(c.setTimeout);");
+	Strcat_charp(str, "console.log(\"content-type:\" + n);if (typeof n === \"string\") console.log(JSON.parse(e.body));");
         beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq2[] = "|void 0===I?void 0:I.ok;";
+    str = Strnew();
+    while ((p = strstr(beg, seq2))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
+	Strcat_charp(str, "console.log(ge);");
+        beg = p + sizeof(seq2) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq3[] = "(V.in_reply_to_user={id_str:N,screen_name:B});";
+    str = Strnew();
+    while ((p = strstr(beg, seq3))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq3) - 1);
+	Strcat_charp(str, "console.log(\"FUGA1 \" + V.created_at);");
+        beg = p + sizeof(seq3) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
