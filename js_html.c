@@ -358,8 +358,17 @@ static JSValue
 window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     /* state was allocated by GC_MALLOC_UNCOLLECTABLE() */
-    WindowState *state = JS_GetOpaque(jsThis, WindowClassID);
+    WindowState *state;
     OpenWindow *w = malloc(sizeof(OpenWindow));
+
+    if (!JS_IsObject(jsThis)) {
+	/* open() (JS_UNDEFINED) */
+	jsThis = JS_GetGlobalObject(ctx);
+    } else {
+	/* window.open() */
+	jsThis = JS_DupValue(ctx, jsThis);
+    }
+    state = JS_GetOpaque(jsThis, WindowClassID);
 
     if (argc == 0) {
 	w->url = w->name = "";
@@ -388,7 +397,16 @@ window_open(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 static JSValue
 window_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    WindowState *state = JS_GetOpaque(jsThis, WindowClassID);
+    WindowState *state;
+
+    if (!JS_IsObject(jsThis)) {
+	/* close() (JS_UNDEFINED) */
+	jsThis = JS_GetGlobalObject(ctx);
+    } else {
+	/* window.close() */
+	jsThis = JS_DupValue(ctx, jsThis);
+    }
+    state = JS_GetOpaque(jsThis, WindowClassID);
 
     state->close = TRUE;
 
@@ -417,6 +435,47 @@ window_alert(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
     JS_FreeCString(ctx, str);
 
     return JS_UNDEFINED;
+}
+
+static JSValue
+window_prompt(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    const char *p;
+    char *prompt;
+    char *ans;
+
+    if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Window.prompt: Too few arguments.");
+
+	return JS_EXCEPTION;
+    }
+
+    p = JS_ToCString(ctx, argv[0]);
+    if (!p) {
+	JS_ThrowTypeError(ctx, "Window.alert: 1st argument is not String.");
+
+	return JS_EXCEPTION;
+    }
+    prompt = Sprintf("%s: ", p)->ptr;
+    JS_FreeCString(ctx, p);
+
+    ans = inputStr(prompt, "");
+
+    if (ans) {
+	return JS_NewString(ctx, ans);
+    } else {
+	JSValue ret;
+
+	if (argc > 1) {
+	    p = JS_ToCString(ctx, argv[1]);
+	    ret = JS_NewString(ctx, p);
+	    JS_FreeCString(ctx, p);
+	} else {
+	    ret = JS_NULL;
+	}
+
+	return ret;
+    }
 }
 
 static JSValue
@@ -523,6 +582,7 @@ static struct {
     { "close", window_close },
     { "alert", window_alert },
     { "confirm", window_confirm },
+    { "prompt", window_prompt },
     { "getComputedStyle", window_get_computed_style },
     { "scroll", window_scroll },
     { "scrollTo", window_scroll },
@@ -1941,6 +2001,48 @@ node_last_child_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
+element_first_child_get(JSContext *ctx, JSValueConst jsThis)
+{
+    const char script[] =
+	"if (this.children.length > 0) {"
+	"  let first = null;"
+	"  for (let i = 0; i < this.children.length; i++) {"
+	"    if (this.children[i].nodeType == 1 /* ELEMENT_NODE */) {"
+	"      first = this.children[i];"
+	"      break;"
+	"    }"
+	"  }"
+	"  first;"
+	"} else {"
+	"  null;"
+	"}";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
+element_last_child_get(JSContext *ctx, JSValueConst jsThis)
+{
+    const char script[] =
+	"if (this.children.length > 0) {"
+	"  let last = null;"
+	"  for (let i = this.children.length - 1; i >= 0; i--) {"
+	"    if (this.children[i].nodeType == 1 /* ELEMENT_NODE */) {"
+	"      last = this.children[i];"
+	"      break;"
+	"    }"
+	"  }"
+	"  last;"
+	"} else {"
+	"  null;"
+	"}";
+
+    return backtrace(ctx, script,
+		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+}
+
+static JSValue
 node_next_sibling_get(JSContext *ctx, JSValueConst jsThis)
 {
     const char script[] =
@@ -2520,8 +2622,8 @@ static const JSCFunctionListEntry NodeFuncs[] = {
 };
 
 static const JSCFunctionListEntry ElementFuncs[] = {
-    JS_CGETSET_DEF("firstElementChild", node_first_child_get, NULL),
-    JS_CGETSET_DEF("lastElementChild", node_last_child_get, NULL),
+    JS_CGETSET_DEF("firstElementChild", element_first_child_get, NULL),
+    JS_CGETSET_DEF("lastElementChild", element_last_child_get, NULL),
     JS_CFUNC_DEF("closest", 1, element_closest),
     JS_CFUNC_DEF("setAttribute", 1, element_set_attribute),
     JS_CFUNC_DEF("getAttribute", 1, element_get_attribute),
@@ -3470,8 +3572,10 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JS_SetPropertyStr(ctx, jsThis, "responseURL",
 		      JS_NewString(ctx, parsedURL2Str(&ctxstate->buf->currentURL)->ptr));
 
-    JS_SetPropertyStr(ctx, jsThis, "statusText",
-		      JS_NewString(ctx, state->response_headers->first->ptr));
+    if (state->response_headers->first) {
+	JS_SetPropertyStr(ctx, jsThis, "statusText",
+			  JS_NewString(ctx, state->response_headers->first->ptr));
+    }
 
     response = JS_NewStringLen(ctx, str->ptr, str->length); /* XXX */
     JS_SetPropertyStr(ctx, jsThis, "responseText", response);
@@ -3597,8 +3701,41 @@ static struct interval_callback {
     JSValue *argv;
     int argc;
     int is_timeout;
+    int is_running;
 } *interval_callbacks;
 static u_int num_interval_callbacks;
+
+static int
+check_same_callback(JSContext *ctx, JSValueConst func, int *idx)
+{
+    int i;
+    const char *str1 = JS_ToCString(ctx, func);
+
+    *idx = -1;
+    for (i = 0; i < num_interval_callbacks; i++) {
+	if (interval_callbacks[i].is_running) {
+	    /* skip */
+	} else 	if (interval_callbacks[i].ctx == NULL) {
+	    if (*idx < 0) {
+		*idx = i;
+	    }
+	} else {
+	    const char *str2 = JS_ToCString(ctx, interval_callbacks[i].func);
+	    if (strcmp(str1, str2) == 0) {
+		log_msg(Sprintf("Ignore duplicated interval/timeout callback: %s", str2)->ptr);
+		JS_FreeCString(ctx, str2);
+		JS_FreeCString(ctx, str1);
+		*idx = i;
+
+		return 1;
+	    }
+	    JS_FreeCString(ctx, str2);
+	}
+    }
+    JS_FreeCString(ctx, str1);
+
+    return 0;
+}
 
 static JSValue
 set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv,
@@ -3620,11 +3757,10 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	return JS_UNDEFINED;
     }
 
-    for (i = 0; i < num_interval_callbacks; i++) {
-	if (interval_callbacks[i].ctx == NULL) {
-	    idx = i;
-	    goto set_callback;
-	}
+    if (check_same_callback(ctx, argv[0], &idx)) {
+	return JS_NewInt32(ctx, idx + 1);
+    } else if (idx >= 0) {
+	goto set_callback;
     }
 
     p = realloc(interval_callbacks, sizeof(*interval_callbacks) * (num_interval_callbacks + 1));
@@ -3665,6 +3801,21 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
     } else {
 	interval_callbacks[idx].delay = interval_callbacks[idx].cur_delay;
     }
+
+#if 0
+    {
+	const char *str = JS_ToCString(ctx, argv[0]);
+	if (is_timeout) {
+	    log_msg(Sprintf("Timeout id %d delay %d",
+			    idx, interval_callbacks[idx].cur_delay)->ptr);
+	} else {
+	    log_msg(Sprintf("Interval id %d delay %d",
+			    idx, interval_callbacks[idx].cur_delay)->ptr);
+	}
+	log_msg(str);
+	JS_FreeCString(ctx, str);
+    }
+#endif
 
     return JS_NewInt32(ctx, idx + 1);
 }
@@ -3760,14 +3911,18 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 	    if (interval_callbacks[i].cur_delay > msec) {
 		interval_callbacks[i].cur_delay -= msec;
 	    } else {
+		CtxState *ctxstate;
+		JSValue val;
+
 		/* interval_callbacks[i] can be destroyed in JS_Call() below. */
 		ctx = interval_callbacks[i].ctx;
-		CtxState *ctxstate = JS_GetContextOpaque(ctx);
-		JSValue val;
+		ctxstate = JS_GetContextOpaque(ctx);
+
+		interval_callbacks[i].is_running = 1;
 		if (JS_IsString(interval_callbacks[i].func)) {
 		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
 		    val = backtrace(ctx, script,
-				    JS_Eval(interval_callbacks[i].ctx, script,
+				    JS_Eval(ctx, script,
 					    strlen(script), "<input>", EVAL_FLAG));
 		    JS_FreeCString(ctx, script);
 		} else {
@@ -3775,7 +3930,7 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
 #endif
 		    val = backtrace(ctx, script ? script : "interval/timeout func",
-				    JS_Call(interval_callbacks[i].ctx,
+				    JS_Call(ctx,
 					    interval_callbacks[i].func,
 					    JS_NULL, interval_callbacks[i].argc,
 					    interval_callbacks[i].argv));
@@ -3783,6 +3938,7 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 		    JS_FreeCString(ctx, script);
 #endif
 		}
+		interval_callbacks[i].is_running = 0;
 		JS_FreeValue(ctx, val);
 		if (ctxstate->buf == buf) {
 		    if (executed == 0) {
@@ -3810,6 +3966,18 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
     }
 
     return executed;
+}
+
+void
+js_reset_interval(JSContext *ctx)
+{
+    int i;
+
+    for (i = 0; i < num_interval_callbacks; i++) {
+	if (interval_callbacks[i].ctx == ctx) {
+	    destroy_interval_callback(interval_callbacks + i);
+	}
+    }
 }
 
 static void
@@ -4340,7 +4508,7 @@ js_html_init(Buffer *buf)
 #if 1
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" \" + e.children[i].nodeType + \" \" + e.children[i].onload + \")\");"
+	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" name: \" + e.children[i].name + \" value: \" + e.children[i].nodeValue + \" \" + e.children[i].nodeType + \" \" + e.children[i].onload + \")\");"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -4678,7 +4846,18 @@ js_html_init(Buffer *buf)
 	""
 	"  doc.getElementsByTagName = function(name) {"
 	"    name = name.toUpperCase();"
-	"    if (name === \"FORM\") {"
+	"    if (name === \"SCRIPT\") {"
+	"      return this.scripts;"
+	"    } else if (name === \"IMG\") {"
+	"      return this.images;"
+	"    }"
+	"    /* this.links can contain not only a tag but also area tag with href attribute. */"
+#if 0
+	"    else if (name === \"A\") {"
+	"      return this.links;"
+	"    }"
+#endif
+	"    else if (name === \"FORM\") {"
 	"      return this.forms;"
 	"    } else {"
 	"      let elements = new HTMLCollection();"
@@ -5370,6 +5549,18 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
+    const char seq[] = "let getChild = document.getElementById('id_2');";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(\">=======\");dump_tree(getChild, \"\");");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    char *beg = script;
+    char *p;
     /*const char seq[] = "if(4===u.readyState){var r=m(e,u);0===u.status?n(r):t(r)";*/
     const char seq[] = "var t=e.headers,n=t&&t[\"content-type\"];";
     Str str = Strnew();
@@ -5872,7 +6063,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    JS_SetPropertyStr(ctx, jsnode, "data", JS_NewString(ctx, (char*)node->content));
 	} else {
 #ifdef DOM_DEBUG
-	    fprintf(fp, "element %d\n", node->type);
+	    fprintf(fp, "skip element %d\n", node->type);
 #endif
 	    continue;
 	}
@@ -5986,6 +6177,10 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
 
     xmlFreeDoc(doc);
     xmlCleanupParser();
+
+#if 0
+    js_eval(ctx, "dump_tree(document, \"\");");
+#endif
 
     return 1;
 

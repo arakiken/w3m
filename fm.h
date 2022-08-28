@@ -756,6 +756,8 @@ struct html_feed_environ {
     char *title;
     int blank_lines;
 #ifdef USE_SCRIPT
+    void *script_interp;
+    char *script_lang;
     GeneralList *scripts;
     char *sourcefile;
 #ifdef USE_M17N

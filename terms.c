@@ -2470,6 +2470,9 @@ sleep_till_anykey(int sec, int purge)
     term_raw();
 
 #ifdef USE_SCRIPT
+    /* interval and timeout start after all images are loaded. */
+    getAllImage(Currentbuf);
+
   retry:
     /* Exclude the time of executing trigger_interval() and other functions. */
     gettimeofday(&before, NULL);
@@ -2488,11 +2491,8 @@ sleep_till_anykey(int sec, int purge)
     if (ret == 0) {
 	if (msec > 100) {
 	    msec -= 100;
-	    after.tv_sec = before.tv_sec;
-	    after.tv_usec = before.tv_usec + 100000;
-	    if (trigger_interval(Currentbuf,
-				 (after.tv_sec - before.tv_sec) * 1000 +
-				 (after.tv_usec - before.tv_usec) / 1000, buf2js, 0)) {
+	    if (Currentbuf->image_loaded &&
+		trigger_interval(Currentbuf, 100, buf2js, 0)) {
 		js2buf = 1;
 	    }
 	    buf2js = 0;
@@ -2513,9 +2513,11 @@ sleep_till_anykey(int sec, int purge)
 
 #ifdef USE_SCRIPT
     gettimeofday(&after, NULL);
-    trigger_interval(Currentbuf,
-		     (after.tv_sec - before.tv_sec) * 1000 +
-		     (after.tv_usec - before.tv_usec) / 1000, buf2js, js2buf);
+    if (Currentbuf->image_loaded) {
+	trigger_interval(Currentbuf,
+			 (after.tv_sec - before.tv_sec) * 1000 +
+			 (after.tv_usec - before.tv_usec) / 1000, buf2js, js2buf);
+    }
 #endif
 
     return ret;

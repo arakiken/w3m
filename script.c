@@ -239,6 +239,8 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 		    i, j, id, i, j, n, i, j, t, i, j, v,  i, j, c)->ptr);
 
     if (*n != '\0' && check_property_name(n)) {
+#if 0
+	/* http://www.shurey.com/js/samples/1_tips7.html */
 	JSValue val = js_eval2(interp, Sprintf("document.forms[%d].%s;", i, n)->ptr);
 	int is_new = 1;
 
@@ -252,9 +254,7 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	    js_free(interp, val);
 	}
 
-	if (is_new) {
-	    js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
-	} else {
+	if (!is_new) {
 	    int len;
 	    JSValue val2 = js_eval2(interp, Sprintf("document.forms[%d].%s.length;", i, n)->ptr);
 	    if (!js_get_int(interp, &len, val2)) {
@@ -264,6 +264,10 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 	    }
 
 	    js_eval(interp, Sprintf("document.forms[%d].%s[%d] = document.forms[%d].elements[%d];", i, n, len, i, j)->ptr);
+	} else
+#endif
+	{
+	    js_eval(interp, Sprintf("document.forms[%d].%s = document.forms[%d].elements[%d];", i, n, i, j)->ptr);
 	}
     }
 
@@ -320,6 +324,10 @@ update_forms(Buffer *buf, void *interp)
 
 	    /*
 	     * XXX
+	     * document.body.insertBefore() can cause duplicated form elements
+	     * in the dom tree.
+	     * (See find_form() called from create_tree() in js_html.c)
+	     *
 	     * If an element whose id is the same as this form was inserted
 	     * after the previous update_forms(), appendChild() here makes
 	     * getElementById() fail to find this form, so insertBefore() is
@@ -1316,6 +1324,7 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
     if (buf2js) {
 	if (buf2js > 0) {
 	    js_reset_functions(interp);
+	    js_reset_interval(interp);
 	    script_buf2js(buf, interp);
 	    js_create_dom_tree(interp, buf->sourcefile, wc_ces_to_charset(buf->document_charset));
 	} else {
@@ -1374,7 +1383,7 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
 static void
 script_js_close(Buffer *buf)
 {
-    if (buf && buf->script_interp) {
+    if (buf->script_interp) {
 	js_html_final(buf->script_interp);
 	buf->script_interp = NULL;
     }

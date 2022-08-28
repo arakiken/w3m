@@ -91,6 +91,7 @@ int js_create_dom_tree(JSContext *ctx, char *filename, const char *charset);
 #define js_create_dom_tree(a, b, c) (0)
 #endif
 extern int js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*));
+extern void js_reset_interval(JSContext *ctx);
 
 Str escape_value(Str src);
 

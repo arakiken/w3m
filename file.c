@@ -4612,8 +4612,16 @@ process_n_script(struct html_feed_environ *h_env)
 	buf->scripts = h_env->scripts;
 	buf->sourcefile = h_env->sourcefile;
 	buf->document_charset = h_env->document_charset;
+	buf->script_interp = h_env->script_interp;
+	buf->script_lang = h_env->script_lang;
 	ret = eval_script_intern(buf, 1, 0);
 	h_env->scripts = NULL;
+	h_env->script_interp = buf->script_interp;
+	h_env->script_lang = buf->script_lang;
+	buf->script_interp = NULL;
+	buf->script_lang = NULL;
+	buf->sourcefile = NULL; /* don't unlink sourcefile (see discardBuffer()) */
+	discardBuffer(buf);
     }
     return ret;
 }
@@ -7717,6 +7725,8 @@ init_henv(struct html_feed_environ *h_env, struct readbuffer *obuf,
     h_env->blank_lines = 0;
 #ifdef USE_SCRIPT
     h_env->scripts = NULL;
+    h_env->script_interp = NULL;
+    h_env->script_lang = NULL;
     h_env->sourcefile = NULL;
 #ifdef USE_M17N
     h_env->document_charset = WC_CES_UTF_8;
@@ -7943,7 +7953,6 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 #ifdef USE_SCRIPT
     htmlenv1.sourcefile = newBuf->sourcefile;
     htmlenv1.document_charset = newBuf->document_charset;
-    htmlenv1.scripts = NULL;
 #endif
     if (w3m_halfdump)
 	htmlenv1.f = stdout;
@@ -8054,6 +8063,8 @@ loadHTMLstream(URLFile *f, Buffer *newBuf, FILE * src, int internal)
 #endif
 #ifdef USE_SCRIPT
     newBuf->scripts = htmlenv1.scripts;
+    newBuf->script_interp = htmlenv1.script_interp;
+    newBuf->script_lang = htmlenv1.script_lang;
 #endif
 #ifdef USE_IMAGE
     newBuf->image_flag = image_flag;
