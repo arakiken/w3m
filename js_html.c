@@ -1893,44 +1893,10 @@ static JSValue element_set_attribute(JSContext *ctx, JSValueConst jsThis, int ar
 				     JSValueConst *argv);
 static JSValue element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
 				     JSValueConst *argv);
-
-static JSValue
-element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    log_msg("XXX: Element.removeAttribute");
-
-    if (argc < 1) {
-	JS_ThrowTypeError(ctx, "Node.removeAttribute: Too few arguments.");
-
-	return JS_EXCEPTION;
-    }
-
-    return JS_UNDEFINED;
-}
-
-static JSValue
-element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    JSValue ret = JS_FALSE;
-
-    if (argc < 1) {
-	JS_ThrowTypeError(ctx, "Node.hasAttribute: Too few arguments.");
-
-	return JS_EXCEPTION;
-    }
-
-    if (JS_IsString(argv[0])) {
-	const char *key = JS_ToCString(ctx, argv[0]);
-	JSValue prop = JS_GetPropertyStr(ctx, jsThis, key);
-	if (!JS_IsUndefined(prop)) {
-	    ret = JS_TRUE;
-	}
-	JS_FreeCString(ctx, key);
-	JS_FreeValue(ctx, prop);
-    }
-
-    return ret;
-}
+static JSValue element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
+					JSValueConst *argv);
+static JSValue element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc,
+				     JSValueConst *argv);
 
 static JSValue
 element_get_bounding_client_rect(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
@@ -2482,7 +2448,7 @@ element_child_count_get(JSContext *ctx, JSValueConst jsThis)
 static JSValue
 element_class_name_get(JSContext *ctx, JSValueConst jsThis)
 {
-    const char script[] = "this.classList.value;";
+    const char script[] = "if (this.classList.length > 0) { this.classList.value; } else { undefined; }";
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
 }
@@ -2736,6 +2702,29 @@ call_getter(JSContext *ctx, JSValueConst jsThis, const char *key,
     return JS_NULL;
 }
 
+static int
+has_getter(JSContext *ctx, JSValueConst jsThis, const char *key,
+	    const JSCFunctionListEntry *funcs, int num)
+{
+    size_t i;
+
+    for (i = 0; i < num; i++) {
+	if (strcmp(key, funcs[i].name) == 0) {
+	    if (funcs[i].def_type == JS_DEF_CGETSET) {
+		JSValue val = (*funcs[i].u.getset.get.getter)(ctx, jsThis);
+		if (JS_IsUndefined(val)) {
+		    break;
+		}
+		JS_FreeValue(ctx, val);
+
+		return 1;
+	    }
+	}
+    }
+
+    return 0;
+}
+
 static JSValue
 element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
@@ -2747,6 +2736,24 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 
     if (JS_IsString(argv[0])) {
 	const char *key = JS_ToCString(ctx, argv[0]);
+	int free_cstring_done = 1;
+
+	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
+	    strcasecmp(key, "httpEquiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    return JS_UNDEFINED;
+	} else if (strcasecmp(key, "class") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "className";
+	} else if (strcasecmp(key, "for") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "htmlFor";
+	} else if (strcasecmp(key, "http-equiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "httpEquiv";
+	} else {
+	    free_cstring_done = 0;
+	}
 
 	if (!call_setter(ctx, jsThis, argv[1], key, NodeFuncs,
 			 sizeof(NodeFuncs) / sizeof(NodeFuncs[0])) &&
@@ -2755,7 +2762,9 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
 	}
 
-	JS_FreeCString(ctx, key);
+	if (!free_cstring_done) {
+	    JS_FreeCString(ctx, key);
+	}
     }
 
     return JS_UNDEFINED;
@@ -2772,7 +2781,25 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 
     if (JS_IsString(argv[0])) {
 	const char *key = JS_ToCString(ctx, argv[0]);
+	int free_cstring_done = 1;
 	JSValue prop;
+
+	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
+	    strcasecmp(key, "httpEquiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    return JS_NULL;
+	} else if (strcasecmp(key, "class") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "className";
+	} else if (strcasecmp(key, "for") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "htmlFor";
+	} else if (strcasecmp(key, "http-equiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "httpEquiv";
+	} else {
+	    free_cstring_done = 0;
+	}
 
 	prop = call_getter(ctx, jsThis, key, NodeFuncs,
 			   sizeof(NodeFuncs) / sizeof(NodeFuncs[0]));
@@ -2785,7 +2812,9 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    }
 	}
 
-	JS_FreeCString(ctx, key);
+	if (!free_cstring_done) {
+	    JS_FreeCString(ctx, key);
+	}
 
 	if (!JS_IsUndefined(prop)) {
 	    return prop;
@@ -2795,6 +2824,77 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     }
 
     return JS_NULL;
+}
+
+static JSValue
+element_remove_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    log_msg("XXX: Element.removeAttribute");
+
+    if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Node.removeAttribute: Too few arguments.");
+
+	return JS_EXCEPTION;
+    }
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    if (argc < 1) {
+	JS_ThrowTypeError(ctx, "Element.hasAttribute: Too few arguments.");
+
+	return JS_EXCEPTION;
+    }
+
+    if (JS_IsString(argv[0])) {
+	const char *key = JS_ToCString(ctx, argv[0]);
+	int free_cstring_done = 1;
+	int has;
+	JSValue ret = JS_TRUE;
+
+	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
+	    strcasecmp(key, "httpEquiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    return JS_FALSE;
+	} else if (strcasecmp(key, "class") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "className";
+	} else if (strcasecmp(key, "for") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "htmlFor";
+	} else if (strcasecmp(key, "http-equiv") == 0) {
+	    JS_FreeCString(ctx, key);
+	    key = "httpEquiv";
+	} else {
+	    free_cstring_done = 0;
+	}
+
+	has = has_getter(ctx, jsThis, key, NodeFuncs,
+			   sizeof(NodeFuncs) / sizeof(NodeFuncs[0]));
+	if (!has) {
+	    has = has_getter(ctx, jsThis, key, ElementFuncs,
+			     sizeof(ElementFuncs) / sizeof(ElementFuncs[0]));
+
+	    if (!has) {
+		JSValue prop = JS_GetPropertyStr(ctx, jsThis, key);
+		if (JS_IsUndefined(prop)) {
+		    ret = JS_FALSE;
+		}
+		JS_FreeValue(ctx, prop);
+	    }
+	}
+
+	if (!free_cstring_done) {
+	    JS_FreeCString(ctx, key);
+	}
+
+	return ret;
+    }
+
+    return JS_FALSE;
 }
 
 static void
@@ -5076,24 +5176,28 @@ js_html_init(Buffer *buf)
 	"}"
 	""
 	"function w3m_onload(obj) {"
-	"  if (obj.w3m_events && obj.w3m_events.length > 0) {"
+	"  if (obj.w3m_events) {"
 	"    /*"
 	"     * 'i = 0; ...;i++' falls infinite loop if a listener calls addEventListener()."
-	"     * The case of calling removeEventListener() is not considered."
 	"     */"
 	"    for (let i = obj.w3m_events.length - 1; i >= 0; i--) {"
-	"      if (obj.w3m_events[i].type === \"loadstart\" ||"
-	"          obj.w3m_events[i].type === \"load\" ||"
-	"          obj.w3m_events[i].type === \"loadend\" ||"
-	"          obj.w3m_events[i].type === \"DOMContentLoaded\" ||"
-	"          obj.w3m_events[i].type === \"visibilitychange\") {"
-	"        if (typeof obj.w3m_events[i].listener === \"function\") {"
-	"          obj.w3m_events[i].listener(obj.w3m_events[i]);"
-	"        } else if (obj.w3m_events[i].listener.handleEvent &&"
-	"                   typeof obj.w3m_events[i].listener.handleEvent === \"function\") {"
-	"          obj.w3m_events[i].listener.handleEvent(obj.w3m_events[i]);"
+	"      let event = obj.w3m_events[i];"
+	"      obj.w3m_events.splice(i, 1);"
+	"      if (event.type === \"loadstart\" ||"
+	"          event.type === \"load\" ||"
+	"          event.type === \"loadend\" ||"
+	"          event.type === \"DOMContentLoaded\" ||"
+	"          event.type === \"visibilitychange\") {"
+	"        if (typeof event.listener === \"function\") {"
+	"          event.listener(event);"
+	"        } else if (event.listener.handleEvent &&"
+	"                   typeof event.listener.handleEvent === \"function\") {"
+	"          event.listener.handleEvent(event);"
 	"        }"
-	"        obj.w3m_events.splice(i, 1);"
+	"      }"
+	"      /* In case a listener calls removeEventListener(). */"
+	"      if (i > obj.w3m_events.length) {"
+	"        i = obj.w3m_events.length;"
 	"      }"
 	"    }"
 	"  }"
@@ -5473,10 +5577,14 @@ js_html_init(Buffer *buf)
 		      JS_NewCFunction(ctx, set_interval, "setInterval", 1));
     JS_SetPropertyStr(ctx, gl, "setTimeout",
 		      JS_NewCFunction(ctx, set_timeout, "setTimeout", 1));
+    JS_SetPropertyStr(ctx, gl, "requestAnimationFrame",
+		      JS_NewCFunction(ctx, set_timeout, "requestAnimationFrame", 1));
     JS_SetPropertyStr(ctx, gl, "clearInterval",
 		      JS_NewCFunction(ctx, clear_interval, "clearInterval", 1));
     JS_SetPropertyStr(ctx, gl, "clearTimeout",
 		      JS_NewCFunction(ctx, clear_interval, "clearTimeout", 1));
+    JS_SetPropertyStr(ctx, gl, "cancelAnimationFrame",
+		      JS_NewCFunction(ctx, clear_interval, "cancelAnimationFrame", 1));
 
     JS_FreeValue(ctx, gl);
 
@@ -5493,8 +5601,10 @@ js_html_init(Buffer *buf)
     js_eval(ctx,
 	    "Object.setPrototypeOf(globalThis, setInterval);"
 	    "Object.setPrototypeOf(globalThis, setTimeout);"
+	    "Object.setPrototypeOf(globalThis, requestAnimationFrame);"
 	    "Object.setPrototypeOf(globalThis, clearInterval);"
-	    "Object.setPrototypeOf(globalThis, clearTimeout);");
+	    "Object.setPrototypeOf(globalThis, clearTimeout);"
+	    "Object.setPrototypeOf(globalThis, cancelAnimationFrame);");
 
     return ctx;
 }
@@ -5577,19 +5687,85 @@ js_eval2(JSContext *ctx, char *script) {
     str = Strnew();
     while ((p = strstr(beg, seq2))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "console.log(ge);");
+	Strcat_charp(str, "console.log(\"TEST0\" + ge);");
         beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
 
     beg = script;
-    const char seq3[] = "(V.in_reply_to_user={id_str:N,screen_name:B});";
+    const char seq3[] = "re=e.withheld_text;";
     str = Strnew();
     while ((p = strstr(beg, seq3))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq3) - 1);
-	Strcat_charp(str, "console.log(\"FUGA1 \" + V.created_at);");
+	Strcat_charp(str, "console.log(\"TEST1 \" + re + X);");
         beg = p + sizeof(seq3) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq4[] = "(ue.enrichments={interactive_text_enrichment:{interactive_texts:xe}})}";
+    str = Strnew();
+    while ((p = strstr(beg, seq4))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq4) - 1);
+	Strcat_charp(str, "console.log((0,l.Z)(ue,t,n));console.log(\"TEST2\");");
+        beg = p + sizeof(seq4) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq6[] = "l=this._processStrategy(e,t,r);";
+    str = Strnew();
+    while ((p = strstr(beg, seq6))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq6) - 1);
+	Strcat_charp(str, "console.log(\"TEST2.5\" + this.schema);");
+        beg = p + sizeof(seq6) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq5[] = "we.collaborator_users);";
+    str = Strnew();
+    while ((p = strstr(beg, seq5))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq5) - 1);
+	Strcat_charp(str, "console.log(\"TEST3 \" + K);try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }");
+        beg = p + sizeof(seq5) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq7[] = "var l=n.entries.filter(Boolean);";
+    str = Strnew();
+    while ((p = strstr(beg, seq7))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq7) - 1);
+	Strcat_charp(str, "console.log(\"TEST4\" + n.type);");
+        beg = p + sizeof(seq7) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq8[] = "void 0};const Fe=function(e){";
+    str = Strnew();
+    while ((p = strstr(beg, seq8))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq8) - 1);
+	Strcat_charp(str, "console.log(\"TEST5\");");
+        beg = p + sizeof(seq8) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq9[] = "t.renderDOM=function(e,t,r){";
+    str = Strnew();
+    while ((p = strstr(beg, seq9))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq9) - 1);
+	Strcat_charp(str, "console.log(\"TEST6\");");
+        beg = p + sizeof(seq9) - 1;
     }
     Strcat_charp(str, beg);
     script = str->ptr;
@@ -5648,11 +5824,11 @@ js_eval2(JSContext *ctx, char *script) {
 
 #if 0
     beg = script;
-    const char seq2[] = "var check = function (c, e) {";
+    const char seq2[] = "doc.close();";
     str = Strnew();
     while ((p = strstr(beg, seq2))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "console.log(\"HELO:\"+ c);");
+	Strcat_charp(str, "dump_tree(doc, \"\");");
         beg = p + sizeof(seq2) - 1;
     }
     Strcat_charp(str, beg);
