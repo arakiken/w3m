@@ -199,7 +199,7 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
     str = JS_ToCString(ctx, argv[0]);
 #if 1
     if (strcmp(str, "loadstart") != 0 && strcmp(str, "load") != 0 && strcmp(str, "loadend") != 0 &&
-	strcmp(str, "DOMContentLoaded") != 0 &&
+	strcmp(str, "DOMContentLoaded") != 0 && strcmp(str, "readystatechange") != 0 &&
 	strcmp(str, "visibilitychange") != 0 && strcmp(str, "submit") != 0 &&
 	strcmp(str, "click") != 0 && strcmp(str, "keypress") != 0 &&
 	strcmp(str, "keydown") != 0 && strcmp(str, "keyup") != 0 &&
@@ -2246,7 +2246,7 @@ create_tree_from_html(JSContext *ctx, JSValue parent, const char *html) {
 				 HTML_PARSE_RECOVER | HTML_PARSE_NOERROR |
 				 HTML_PARSE_NOWARNING | HTML_PARSE_NODEFDTD
 				 /*| HTML_PARSE_NOIMPLIED*/);
-    xmlDtd *dtd = dtd = xmlGetIntSubset(doc);
+    xmlDtd *dtd = xmlGetIntSubset(doc);
     xmlNode *node;
 
     if (dtd) {
@@ -2266,8 +2266,11 @@ create_tree_from_html(JSContext *ctx, JSValue parent, const char *html) {
      *                      <a>
      *                      <input>
      */
-    for (node = xmlDocGetRootElement(doc)->children /* head */; node; node = node->next) {
-	create_tree(ctx, node->children, JS_DupValue(ctx, parent), 1);
+    node = xmlDocGetRootElement(doc);
+    if (node) {
+	for (node = node->children /* head */; node; node = node->next) {
+	    create_tree(ctx, node->children, JS_DupValue(ctx, parent), 1);
+	}
     }
     xmlFreeDoc(doc);
     xmlCleanupParser();
@@ -5193,6 +5196,7 @@ js_html_init(Buffer *buf)
 	"          event.type === \"load\" ||"
 	"          event.type === \"loadend\" ||"
 	"          event.type === \"DOMContentLoaded\" ||"
+	"          event.type === \"readystatechange\" ||"
 	"          event.type === \"visibilitychange\") {"
 	"        if (typeof event.listener === \"function\") {"
 	"          event.listener(event);"
@@ -5244,6 +5248,18 @@ js_html_init(Buffer *buf)
 	"    }"
 	"    obj.onloadend = undefined;"
 	"  }"
+	"  if (obj.onreadystatechange) {"
+	"    if (typeof obj.onreadystatechange === \"string\") {"
+	"      try {"
+	"        eval(obj.onreadystatechange);"
+	"      } catch (e) {"
+	"        console.log(\"Error in onreadystatechange: \" + e.message);"
+	"      }"
+	"    } else if (typeof obj.onreadystatechange === \"function\") {"
+	"      obj.onreadystatechange();"
+	"    }"
+	"    obj.onreadystatechange = undefined;"
+	"  }"
 	"}"
 	"function w3m_element_onload(element) {"
 	"  w3m_onload(element);"
@@ -5263,6 +5279,9 @@ js_html_init(Buffer *buf)
 	"  }"
 	"  if (obj.onloadend) {"
 	"    obj.w3m_onloadend = undefined;"
+	"  }"
+	"  if (obj.onreadystatechange) {"
+	"    obj.onreadystatechange = undefined;"
 	"  }"
 	"}"
 	""
@@ -5703,11 +5722,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "let getChild = document.getElementById('id_2');";
+    const char seq[] = "window.__twttr.widgets.init||function(t){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\">=======\");dump_tree(getChild, \"\");");
+	Strcat_charp(str, "console.log(\"HELO\");");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -6316,7 +6335,6 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     xmlDoc *doc;
     xmlNode *node;
     xmlDtd *dtd;
-    JSValue jsnode;
 
     if (filename == NULL) {
 	goto error;
@@ -6359,35 +6377,38 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     }
 
     node = xmlDocGetRootElement(doc);
-    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
-    set_attribute(ctx, jsnode, node);
-    JS_FreeValue(ctx, jsnode);
-
-    for (node = node->children; node; node = node->next) {
-	xmlNode *next_tmp = NULL;
-
-	if (strcasecmp((char*)node->name, "head") == 0) {
-	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
-	} else if (strcasecmp((char*)node->name, "body") == 0) {
-	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
-	} else {
-#ifdef DOM_DEBUG
-	    FILE *fp = fopen("domlog.txt", "a");
-	    fprintf(fp, "(orphan jsnode %s)\n", node->name);
-	    fclose(fp);
-#endif
-	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentJsnode");
-	    next_tmp = node->next;
-	    node->next = NULL;
-	}
+    if (node) {
+	JSValue jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
 
 	set_attribute(ctx, jsnode, node);
+	JS_FreeValue(ctx, jsnode);
 
-	if (next_tmp) {
-	    create_tree(ctx, node, jsnode, 0);
-	    node->next = next_tmp;
-	} else {
-	    create_tree(ctx, node->children, jsnode, 0);
+	for (node = node->children; node; node = node->next) {
+	    xmlNode *next_tmp = NULL;
+
+	    if (strcasecmp((char*)node->name, "head") == 0) {
+		jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
+	    } else if (strcasecmp((char*)node->name, "body") == 0) {
+		jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
+	    } else {
+#ifdef DOM_DEBUG
+		FILE *fp = fopen("domlog.txt", "a");
+		fprintf(fp, "(orphan jsnode %s)\n", node->name);
+		fclose(fp);
+#endif
+		jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentJsnode");
+		next_tmp = node->next;
+		node->next = NULL;
+	    }
+
+	    set_attribute(ctx, jsnode, node);
+
+	    if (next_tmp) {
+		create_tree(ctx, node, jsnode, 0);
+		node->next = next_tmp;
+	    } else {
+		create_tree(ctx, node->children, jsnode, 0);
+	    }
 	}
     }
 
