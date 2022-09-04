@@ -2738,6 +2738,7 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	const char *key = JS_ToCString(ctx, argv[0]);
 	int free_cstring_done = 1;
 
+	/* See also w3m_elementAttributes */
 	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
 	    strcasecmp(key, "httpEquiv") == 0) {
 	    JS_FreeCString(ctx, key);
@@ -2784,6 +2785,7 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	int free_cstring_done = 1;
 	JSValue prop;
 
+	/* See also w3m_elementAttributes */
 	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
 	    strcasecmp(key, "httpEquiv") == 0) {
 	    JS_FreeCString(ctx, key);
@@ -2855,6 +2857,7 @@ element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	int has;
 	JSValue ret = JS_TRUE;
 
+	/* See also w3m_elementAttributes */
 	if (strcasecmp(key, "className") == 0 || strcasecmp(key, "htmlFor") == 0 ||
 	    strcasecmp(key, "httpEquiv") == 0) {
 	    JS_FreeCString(ctx, key);
@@ -4454,14 +4457,16 @@ js_html_init(Buffer *buf)
 	"      if (key === \"tagName\" || key === \"innerText\" ||"
 	"          key === \"innerHTML\") {"
 	"        continue;"
-	"      } else if (key === \"className\") {"
+	"      }"
+	"      /* see element_{get|set|has}_attribute() */"
+	"      else if (key === \"className\") {"
 	"        key = \"class\";"
+	"      } else if (key === \"htmlFor\") {"
+	"        key = \"for\";"
+	"      } else if (key === \"httpEquiv\") {"
+	"        key = \"http-equiv\";"
 	"      }"
 	"    } else if (typeof value === \"function\") {"
-	"      /* XXX onclick attr is not set in script.c for now. */"
-	"      if (key !== \"onclick\") {"
-	"        continue;"
-	"      }"
 	"      value = value.toString();"
 	"    } else {"
 	"      continue;"
@@ -4475,6 +4480,7 @@ js_html_init(Buffer *buf)
 	"    attrs.push(attr);"
 	"    attrs[key] = value;"
 	"  }"
+	"  attrs.style = new Object(); /* for MutationObserver.js:218 */"
 	"  return attrs;"
 	"}"
 	""
@@ -5257,6 +5263,44 @@ js_html_init(Buffer *buf)
 	"  }"
 	"  if (obj.onloadend) {"
 	"    obj.w3m_onloadend = undefined;"
+	"  }"
+	"}"
+	""
+	"function w3m_invoke_event(obj, evtype) {"
+	"  if (obj.w3m_events) {"
+	"    for (let i = obj.w3m_events.length - 1; i >= 0; i--) {"
+	"      let event = obj.w3m_events[i];"
+	"      if (event.type === evtype) {"
+	"        if (typeof event.listener === \"function\") {"
+	"          event.listener(event);"
+	"        } else if (event.listener.handleEvent &&"
+	"                   typeof event.listener.handleEvent === \"function\") {"
+	"          event.listener.handleEvent(event);"
+	"        }"
+	"      }"
+	"      /* In case a listener calls removeEventListener(). */"
+	"      if (i > obj.w3m_events.length) {"
+	"        i = obj.w3m_events.length;"
+	"      }"
+	"    }"
+	"  }"
+	"  evtype = \"on\" + evtype;"
+	"  if (obj[evtype]) {"
+	"    if (typeof obj[evtype] === \"string\") {"
+	"      try {"
+	"        eval(obj[evtype]);"
+	"      } catch (e) {"
+	"        console.log(\"Error in \" + evtype + \": \" + e.message);"
+	"      }"
+	"    } else if (typeof obj[evtype] === \"function\") {"
+	"      obj[evtype]();"
+	"    }"
+	"  }"
+	"}"
+	"function w3m_element_invoke_event(element, evtype) {"
+	"  w3m_invoke_event(element, evtype);"
+	"  for (let i = 0; i < element.children.length; i++) {"
+	"    w3m_element_invoke_event(element.children[i], evtype);"
 	"  }"
 	"}"
 	""
@@ -6133,6 +6177,36 @@ create_dtd(JSContext *ctx, xmlDtd *dtd, JSValue doc)
 }
 
 static void
+set_attribute(JSContext *ctx, JSValue jsnode, xmlNode *node)
+{
+    xmlAttr *attr;
+
+    for (attr = node->properties; attr != NULL; attr = attr->next) {
+	xmlNode *n = attr->children;
+	JSValue args[2];
+	char *name;
+
+	if (n && n->type == XML_TEXT_NODE) {
+	    args[1] = JS_NewString(ctx, (char*)n->content);
+	    name = to_lower((char*)attr->name);
+#ifdef DOM_DEBUG
+	    fprintf(fp, "attr %s=%s ", name, n->content);
+#endif
+	} else {
+	    name = (char*)attr->name;
+	    args[1] = JS_NULL;
+#ifdef DOM_DEBUG
+	    fprintf(fp, "attr %s", name);
+#endif
+	}
+	args[0] = JS_NewString(ctx, name);
+	element_set_attribute(ctx, jsnode, 2, args);
+	JS_FreeValue(ctx, args[0]);
+	JS_FreeValue(ctx, args[1]);
+    }
+}
+
+static void
 create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 {
 #ifdef DOM_DEBUG
@@ -6144,8 +6218,6 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	JSValue jsnode;
 
 	if (node->type == XML_ELEMENT_NODE) {
-	    xmlAttr *attr;
-
 	    if (!innerhtml &&
 		(strcasecmp((char*)node->name, "FORM") == 0 ||
 		 strcasecmp((char*)node->name, "SELECT") == 0 ||
@@ -6176,40 +6248,15 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		jsnode = html_object_element_new(ctx, jsparent, 0, NULL);
 	    } else if (strcasecmp((char*)node->name, "IFRAME") == 0) {
 		jsnode = html_iframe_element_new(ctx, jsparent, 0, NULL);
+	    } else if (strcasecmp((char*)node->name, "SVG") == 0) {
+		jsnode = svg_element_new(ctx, jsparent, 0, NULL);
 	    } else {
 		JSValue arg = JS_NewString(ctx, to_upper((char*)node->name));
 		jsnode = html_element_new(ctx, jsparent, 1, &arg);
 		JS_FreeValue(ctx, arg);
 	    }
 
-	    for (attr = node->properties; attr != NULL; attr = attr->next) {
-		xmlNode *n;
-		JSValue value;
-		char *name;
-
-		n = attr->children;
-		if (n && n->type == XML_TEXT_NODE) {
-		    value = JS_NewString(ctx, (char*)n->content);
-
-		    if (strcasecmp((char*)attr->name, "class") == 0) {
-			JS_FreeValue(ctx, element_class_name_set(ctx, jsnode, value));
-			JS_FreeValue(ctx, value);
-			continue;
-		    }
-
-		    name = to_lower((char*)attr->name);
-#ifdef DOM_DEBUG
-		    fprintf(fp, "attr %s=%s ", name, n->content);
-#endif
-		} else {
-		    name = (char*)attr->name;
-		    value = JS_NULL;
-#ifdef DOM_DEBUG
-		    fprintf(fp, "attr %s", name);
-#endif
-		}
-		JS_SetPropertyStr(ctx, jsnode, name, value);
-	    }
+	    set_attribute(ctx, jsnode, node);
 
 #ifdef DOM_DEBUG
 	    fprintf(fp, "\n");
@@ -6269,6 +6316,7 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     xmlDoc *doc;
     xmlNode *node;
     xmlDtd *dtd;
+    JSValue jsnode;
 
     if (filename == NULL) {
 	goto error;
@@ -6309,45 +6357,37 @@ js_create_dom_tree(JSContext *ctx, char *filename, const char *charset)
     if (dtd) {
 	create_dtd(ctx, dtd, js_get_document(ctx));
     }
-    for (node = xmlDocGetRootElement(doc)->children; node; node = node->next) {
-	JSValue element;
-	xmlAttr *attr;
+
+    node = xmlDocGetRootElement(doc);
+    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
+    set_attribute(ctx, jsnode, node);
+    JS_FreeValue(ctx, jsnode);
+
+    for (node = node->children; node; node = node->next) {
 	xmlNode *next_tmp = NULL;
 
 	if (strcasecmp((char*)node->name, "head") == 0) {
-	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
+	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "head");
 	} else if (strcasecmp((char*)node->name, "body") == 0) {
-	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
+	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "body");
 	} else {
 #ifdef DOM_DEBUG
 	    FILE *fp = fopen("domlog.txt", "a");
-	    fprintf(fp, "(orphan element %s)\n", node->name);
+	    fprintf(fp, "(orphan jsnode %s)\n", node->name);
 	    fclose(fp);
 #endif
-	    element = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentElement");
+	    jsnode = JS_GetPropertyStr(ctx, js_get_document(ctx), "documentJsnode");
 	    next_tmp = node->next;
 	    node->next = NULL;
 	}
 
-	for (attr = node->properties; attr != NULL; attr = attr->next) {
-	    xmlNode *n;
-
-	    n = attr->children;
-	    if (n && n->type == XML_TEXT_NODE && strcasecmp((char*)attr->name, "onload") == 0) {
-		JS_SetPropertyStr(ctx, element, "onload", JS_NewString(ctx, (char*)n->content));
-#ifdef DOM_DEBUG
-		FILE *fp = fopen("domlog.txt", "a");
-		fprintf(fp, "body onload=%s\n", n->content);
-		fclose(fp);
-#endif
-	    }
-	}
+	set_attribute(ctx, jsnode, node);
 
 	if (next_tmp) {
-	    create_tree(ctx, node, element, 0);
+	    create_tree(ctx, node, jsnode, 0);
 	    node->next = next_tmp;
 	} else {
-	    create_tree(ctx, node->children, element, 0);
+	    create_tree(ctx, node->children, jsnode, 0);
 	}
     }
 

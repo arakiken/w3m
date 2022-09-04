@@ -561,7 +561,7 @@ script_buf2js(Buffer *buf, void *interp)
 	load_js(interp, AUXBIN_DIR "/js/uuid.js");
 	/* https://github.com/github/fetch/ */
 	load_js(interp, AUXBIN_DIR "/js/fetch.js");
-	/* https://github.com/megawac/MutationObserver.js/ */
+	/* https://github.com/tildeio/MessageChannel.js/ */
 	if (!load_js(interp, AUXBIN_DIR "/js/message_channel.js")) {
 	    js_eval(interp,
 		    "globalThis.MessagePort = class MessagePort {"
@@ -583,8 +583,8 @@ script_buf2js(Buffer *buf, void *interp)
 		    "  }"
 		    "};");
 	}
-	/* https://github.com/tildeio/MessageChannel.js/ */
-	if (!load_js(interp, AUXBIN_DIR "/js/mutationobserver.min.js")) {
+	/* https://github.com/megawac/MutationObserver.js/ */
+	if (!load_js(interp, AUXBIN_DIR /*"/js/mutationobserver.min.js"*/ "/js/MutationObserver.js")) {
 	    js_eval(interp,
 		    "globalThis.MutationObserver = class MutationObserver {"
 		    "  constructor(callback) {"
