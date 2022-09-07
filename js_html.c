@@ -229,6 +229,34 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 }
 
 static JSValue
+attach_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue argv2[2];
+    const char *type;
+
+    if (argc < 2) {
+	JS_ThrowTypeError(ctx, "attachEvent: Too few arguments.");
+
+	return JS_EXCEPTION;
+    }
+
+    type = JS_ToCString(ctx, argv[0]);
+    if (strncmp(type, "on", 2) == 0) {
+	argv2[0] = JS_NewString(ctx, type + 2);
+    } else {
+	argv2[0] = JS_DupValue(ctx, argv[0]);
+    }
+    JS_FreeCString(ctx, type);
+    argv2[1] = argv[1];
+
+    add_event_listener(ctx, jsThis, 2, argv2);
+
+    JS_FreeValue(ctx, argv2[0]);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
 remove_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     const char *arg_type;
@@ -291,6 +319,34 @@ remove_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     JS_FreeValue(ctx, arg_handle_event);
     JS_FreeCString(ctx, arg_type);
     JS_FreeValue(ctx, events);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue
+detach_event(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue argv2[2];
+    const char *type;
+
+    if (argc < 2) {
+	JS_ThrowTypeError(ctx, "detachEvent: Too few arguments.");
+
+	return JS_EXCEPTION;
+    }
+
+    type = JS_ToCString(ctx, argv[0]);
+    if (strncmp(type, "on", 2) == 0) {
+	argv2[0] = JS_NewString(ctx, type + 2);
+    } else {
+	argv2[0] = JS_DupValue(ctx, argv[0]);
+    }
+    JS_FreeCString(ctx, type);
+    argv2[1] = argv[1];
+
+    remove_event_listener(ctx, jsThis, 2, argv2);
+
+    JS_FreeValue(ctx, argv2[0]);
 
     return JS_UNDEFINED;
 }
@@ -594,6 +650,8 @@ static struct {
     { "addEventListener", add_event_listener },
     { "removeEventListener", remove_event_listener },
     { "dispatchEvent", dispatch_event },
+    { "attachEvent", attach_event }, /* XXX DEPRECATED */
+    { "detachEvent", detach_event }, /* XXX DEPRECATED */
 };
 
 static void
@@ -1288,14 +1346,18 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 		      JS_NewCFunction(ctx, style_get_property_value, "getPropertyValue", 1));
     JS_SetPropertyStr(ctx, style, "whiteSpace", JS_NewString(ctx, "normal"));
     JS_SetPropertyStr(ctx, style, "zIndex", JS_NewInt32(ctx, 0));
+    JS_SetPropertyStr(ctx, style, "visibility", JS_NewString(ctx, "visible"));
+    JS_SetPropertyStr(ctx, style, "display", JS_NewString(ctx, ""));
     JS_SetPropertyStr(ctx, obj, "style", style);
+
+    JS_SetPropertyStr(ctx, obj, "lang", JS_NewString(ctx, "unknown"));
 
     JS_SetPropertyStr(ctx, obj, "offsetWidth", JS_NewInt32(ctx, term_ppc));
     JS_SetPropertyStr(ctx, obj, "offsetHeight", JS_NewInt32(ctx, term_ppl));
     JS_SetPropertyStr(ctx, obj, "offsetLeft", JS_NewInt32(ctx, 0));
     JS_SetPropertyStr(ctx, obj, "offsetTop", JS_NewInt32(ctx, 0));
 
-    JS_SetPropertyStr(ctx, obj, "dataset", JS_NewObject(ctx));
+    JS_SetPropertyStr(ctx, obj, "dataset", JS_NewObject(ctx)); /* XXX DOMStringMap */
 
     /* XXX HTMLSelectElement */
     JS_SetPropertyStr(ctx, obj, "disabled", JS_FALSE);
@@ -2561,7 +2623,8 @@ static const JSCFunctionListEntry NodeFuncs[] = {
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
     JS_CFUNC_DEF("removeEventListener", 1, remove_event_listener),
     JS_CFUNC_DEF("dispatchEvent", 1, dispatch_event),
-    JS_CFUNC_DEF("attachEvent", 1, add_event_listener), /* XXX DEPRECATED */
+    JS_CFUNC_DEF("attachEvent", 1, attach_event), /* XXX DEPRECATED */
+    JS_CFUNC_DEF("detachEvent", 1, detach_event), /* XXX DEPRECATED */
 
     /* Node */
     JS_CFUNC_DEF("appendChild", 1, node_append_child),
@@ -2757,6 +2820,14 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    key = "httpEquiv";
 	} else {
 	    free_cstring_done = 0;
+
+	    if (strncmp(key, "data-", 5) == 0) {
+		JSValue dataset = JS_GetPropertyStr(ctx, jsThis, "dataset");
+		JS_SetPropertyStr(ctx, dataset, key + 5, JS_DupValue(ctx, argv[1]));
+		JS_FreeValue(ctx, dataset);
+
+		goto end;
+	    }
 	}
 
 	if (!call_setter(ctx, jsThis, argv[1], key, NodeFuncs,
@@ -2766,6 +2837,7 @@ element_set_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    JS_SetPropertyStr(ctx, jsThis, key, JS_DupValue(ctx, argv[1]));
 	}
 
+    end:
 	if (!free_cstring_done) {
 	    JS_FreeCString(ctx, key);
 	}
@@ -2804,6 +2876,14 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    key = "httpEquiv";
 	} else {
 	    free_cstring_done = 0;
+
+	    if (strncmp(key, "data-", 5) == 0) {
+		JSValue dataset = JS_GetPropertyStr(ctx, jsThis, "dataset");
+		prop = JS_GetPropertyStr(ctx, dataset, key + 5);
+		JS_FreeValue(ctx, dataset);
+
+		goto end;
+	    }
 	}
 
 	prop = call_getter(ctx, jsThis, key, NodeFuncs,
@@ -2817,6 +2897,7 @@ element_get_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    }
 	}
 
+    end:
 	if (!free_cstring_done) {
 	    JS_FreeCString(ctx, key);
 	}
@@ -2876,6 +2957,18 @@ element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    key = "httpEquiv";
 	} else {
 	    free_cstring_done = 0;
+
+	    if (strncmp(key, "data-", 5) == 0) {
+		JSValue dataset = JS_GetPropertyStr(ctx, jsThis, "dataset");
+		JSValue prop = JS_GetPropertyStr(ctx, dataset, key + 5);
+		JS_FreeValue(ctx, dataset);
+		if (JS_IsUndefined(prop)) {
+		    ret = JS_FALSE;
+		}
+		JS_FreeValue(ctx, prop);
+
+		goto end;
+	    }
 	}
 
 	has = has_getter(ctx, jsThis, key, NodeFuncs,
@@ -2893,6 +2986,7 @@ element_has_attribute(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    }
 	}
 
+    end:
 	if (!free_cstring_done) {
 	    JS_FreeCString(ctx, key);
 	}
@@ -4454,8 +4548,13 @@ js_html_init(Buffer *buf)
 	"  let attrs = new Array(); /* XXX NamedNodeMap */"
 	"  for (let i = 0; i < attribute_keys.length; i++) {"
 	"    let key = attribute_keys[i];"
-	"    let value = obj[key];"
+	"    let value;"
 	"    /* XXX */"
+	"    if (key.substring(0, 5) === \"data-\") {"
+	"      value = obj.dataset[key.substring(5)];"
+	"    } else {"
+	"      value = obj[key];"
+	"    }"
 	"    if (typeof value === \"string\") {"
 	"      if (key === \"tagName\" || key === \"innerText\" ||"
 	"          key === \"innerHTML\") {"
@@ -5722,11 +5821,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "window.__twttr.widgets.init||function(t){";
+    const char seq[] = ".toRealArray(arguments).slice(1).forEach(function(t){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"HELO\");");
+	Strcat_charp(str, "var zzz=console.log(\"HELO\" + t.screenName)),");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
