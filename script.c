@@ -119,10 +119,11 @@ put_select_option(void *interp, int i, int j, int k, FormSelectOptionItem *opt)
 		    "document.forms[%d].elements[%d].options[%d].value = \"%s\";"
 		    "document.forms[%d].elements[%d].options[%d].text = \"%s\";"
 		    "document.forms[%d].elements[%d].options[%d].selected = %s;"
+		    "document.forms[%d].elements[%d].options[%d].form = document.forms[%d].elements[%d].form;"
 		    /* http://www.shurey.com/js/samples/6_smp7.html */
 		    "document.forms[%d].elements[%d][\"%d\"] = document.forms[%d].elements[%d].options[%d];",
 		    i, j, i, j, k, ov, i, j, k, ol, i, j, k, opt->checked ? "true" : "false",
-		    i, j, k, i, j, k)->ptr);
+		    i, j, k, i, j, i, j, k, i, j, k)->ptr);
 
 
 #ifdef SET_FORM_OPAQUE
@@ -235,8 +236,9 @@ put_form_element(void *interp, int i, int j, FormItemList *fi)
 		    "document.forms[%d].elements[%d].name = \"%s\";"
 		    "document.forms[%d].elements[%d].type = \"%s\";"
 		    "document.forms[%d].elements[%d].value = \"%s\";"
-		    "document.forms[%d].elements[%d].className = \"%s\";",
-		    i, j, id, i, j, n, i, j, t, i, j, v,  i, j, c)->ptr);
+		    "document.forms[%d].elements[%d].className = \"%s\";"
+		    "document.forms[%d].elements[%d].form = document.forms[%d];",
+		    i, j, id, i, j, n, i, j, t, i, j, v,  i, j, c, i, j, i)->ptr);
 
     if (*n != '\0' && check_property_name(n)) {
 #if 0
@@ -481,6 +483,10 @@ script_buf2js(Buffer *buf, void *interp)
 		"performance.now = function() {"
 		"  /* performance.now() should return DOMHighResTimeStamp */"
 		"  return Date.now();"
+		"};"
+		"performance.mark = function() {"
+		"  console.log(\"XXX: Performance.mark\");"
+		"  return Object();"
 		"};"
 		""
 		"/* deprecated */"
@@ -1299,10 +1305,11 @@ script_js2buf(Buffer *buf, void *interp)
 
 static int
 script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
-	       FormList *fl, Str *output)
+	       FormItemList *fi, Str *output, char *ev_type)
 {
     void *interp;
-    int formidx = -1;
+    int fl_idx = -1;
+    int fi_idx = -1;
     JSValue ret;
     char *p;
 
@@ -1331,26 +1338,32 @@ script_js_eval(Buffer *buf, char *script, int buf2js, int js2buf, int onload,
 	}
     }
 
-    if (fl) {
+    if (fi) {
 	int i;
-	FormList *l;
+	FormList *form;
 
-	for (i = 0, l = buf->formlist; l != NULL; i++, l = l->next) {
-	    if (fl == l) {
-		formidx = i;
-		break;
+	for (i = 0, form = buf->formlist; form != NULL; i++, form = form->next) {
+	    if (fi->parent == form) {
+		int j;
+		FormItemList *item;
+
+		for (j = 0, item = form->item; item != NULL; j++, item = item->next) {
+		    if (fi == item) {
+			fl_idx = i;
+			fi_idx = j;
+
+			break;
+		    }
+		}
 	    }
 	}
     }
 
-    if (formidx == -1) {
+    if (fl_idx == -1) {
 	ret = js_eval2(interp, script);
     } else {
-	/*
-	 * Support 'this.form'.
-	 * (http://www9.plala.or.jp/oyoyon/html/script/change_misc.html)
-	 */
-	ret = js_eval2_this(interp, formidx, script);
+	/* http://www9.plala.or.jp/oyoyon/html/script/change_misc.html) */
+	ret = js_eval2_this(interp, fl_idx, fi_idx, script, ev_type);
     }
 
     if (onload) {
@@ -1395,7 +1408,11 @@ int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 	js_eval(buf->script_interp, "w3m_invoke_idbrequests();");
     }
     if ((ret && js2buf) || js2buf > 0) {
-	Str str = script_js2buf(buf, buf->script_interp);
+	Str str;
+
+	js_eval(buf->script_interp, "w3m_element_onload(document); w3m_onload(window);");
+
+	str = script_js2buf(buf, buf->script_interp);
 #ifdef SCRIPT_DEBUG
 	if (str) {
 	    FILE *fp = fopen("scriptlog.txt", "a");
@@ -1416,7 +1433,7 @@ int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 
 int
 script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int onload,
-	    FormList *fl, Str *output)
+	    FormItemList *fi, Str *output, char *ev_type)
 {
     if (buf == NULL) {
 	return 0;
@@ -1432,7 +1449,7 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int o
 	! strcasecmp(lang, "jscript")) {
 	buf->script_lang = lang;
 
-	return script_js_eval(buf, script, buf2js, js2buf, onload, fl, output);
+	return script_js_eval(buf, script, buf2js, js2buf, onload, fi, output, ev_type);
     } else
 #ifdef SCRIPT_DEBUG
     {

@@ -75,7 +75,7 @@ extern void js_html_final(JSContext *ctx);
 
 extern void js_eval(JSContext *ctx, char *script);
 extern JSValue js_eval2(JSContext *ctx, char *script);
-extern JSValue js_eval2_this(JSContext *ctx, int formidx, char *script);
+extern JSValue js_eval2_this(JSContext *ctx, int fl_idx, int fi_idx, char *script, char *ev_type);
 
 extern char *js_get_cstr(JSContext *ctx, JSValue value);
 extern Str js_get_str(JSContext *ctx, JSValue value);

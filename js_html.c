@@ -204,7 +204,7 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 	strcmp(str, "click") != 0 && strcmp(str, "keypress") != 0 &&
 	strcmp(str, "keydown") != 0 && strcmp(str, "keyup") != 0 &&
 	strcmp(str, "input") != 0 && strcmp(str, "focus") != 0 &&
-	strcmp(str, "message") != 0 && strcmp(str, "change") != 0)
+	strcmp(str, "message") != 0 && strcmp(str, "change") != 0 && strcmp(str, "online") != 0)
 #endif
     {
 	FILE *fp = fopen("scriptlog.txt", "a");
@@ -4243,11 +4243,6 @@ js_html_init(Buffer *buf)
 	"globalThis.NodeList = class NodeList extends HTMLCollection {};"
 	"globalThis.FileList = class FileList extends HTMLCollection {};"
 	"globalThis.CSSRuleList = class FileList extends HTMLCollection {};"
-	"globalThis.Event = class Event {"
-	"  constructor(type) {"
-	"    this.type = type;"
-	"  }"
-	"};"
 	""
 	"globalThis.NodeFilter = class NodeFilter {"
 	"  static FILTER_ACCEPT               = 1;"
@@ -4498,6 +4493,9 @@ js_html_init(Buffer *buf)
 	"  preventDefault() {"
 	"    console.log(\"XXX: Event.preventDefault\");"
 	"  }"
+	"  stopPropagation() {"
+	"    console.log(\"XXX: Event.stopPropagation\");"
+	"  }"
 	"};"
 	""
 	"globalThis.CustomEvent = class CustomEvent extends Event {"
@@ -4722,6 +4720,16 @@ js_html_init(Buffer *buf)
 	"    } else {"
 	"      dump_tree(e.children[i], head + \" \");"
 	"    }"
+	"  }"
+	"}"
+	"function dump_function(e) {"
+	"  for (let i = 0; i < e.children.length; i++) {"
+	"    if (e.children[i].w3m_events) {"
+	"      for (let j = 0; j < e.children[i].w3m_events.length; j++) {"
+	"        console.log(e.children[i].id + e.children[i].w3m_events[j].type + e.children[i].w3m_events[j].listener);"
+	"      }"
+	"    }"
+	"    dump_function(e.children[i]);"
 	"  }"
 	"}"
 #endif
@@ -5296,7 +5304,8 @@ js_html_init(Buffer *buf)
 	"          event.type === \"loadend\" ||"
 	"          event.type === \"DOMContentLoaded\" ||"
 	"          event.type === \"readystatechange\" ||"
-	"          event.type === \"visibilitychange\") {"
+	"          event.type === \"visibilitychange\" ||"
+	"          event.type === \"online\") {"
 	"        if (typeof event.listener === \"function\") {"
 	"          event.listener(event);"
 	"        } else if (event.listener.handleEvent &&"
@@ -5821,11 +5830,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = ".toRealArray(arguments).slice(1).forEach(function(t){";
+    const char seq[] = "//フォロイー一覧";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "var zzz=console.log(\"HELO\" + t.screenName)),");
+	Strcat_charp(str, "\nconsole.log(\"TEST\");dump_function(document);try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -6016,11 +6025,41 @@ js_eval2(JSContext *ctx, char *script) {
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 }
 
+static char *
+replace_event(char *script, char *ev_str)
+{
+    char *beg = script;
+    Str str = Strnew();
+
+    while (1) {
+	int c1, c2;
+	char *p = strstr(beg, "event");
+	if (p == NULL) {
+	    Strcat_charp(str, beg);
+	    break;
+	}
+	c1 = *(p - 1);
+	c2 = *(p + 5);
+	if ((((c1 | 0x20) < 'a' && (c1 < 0x21 || 0x27 < c1)) || 'z' < (c1 | 0x20)) &&
+	    (((c2 | 0x20) < 'a' && (c2 < 0x21 || (0x27 < c2 && c2 < 0x30) || 0x39 < c2)) || 'z' < (c2 | 0x20))) {
+	    Strcat_charp_n(str, beg, p - beg);
+	    Strcat_charp(str, ev_str);
+	} else {
+	    Strcat_charp_n(str, beg, p - beg + 5);
+	}
+	beg = p + 5;
+    }
+
+    return str->ptr;
+}
+
+
 JSValue
-js_eval2_this(JSContext *ctx, int formidx, char *script) {
-    Str str = Sprintf("document.forms[%d];", formidx);
+js_eval2_this(JSContext *ctx, int fl_idx, int fi_idx, char *script, char *ev_type) {
+    Str str = Sprintf("document.forms[%d].elements[%d];", fl_idx, fi_idx);
     JSValue form = JS_Eval(ctx, str->ptr, str->length, "<input>", EVAL_FLAG);
     JSValue ret;
+    char *ev_str = Sprintf("new Event(\"%s\")", ev_type ? ev_type : "click")->ptr;
 
     if (strncmp(script, "func_id:", 8) == 0) {
 	int idx = atoi(script + 8);
@@ -6030,8 +6069,7 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
 	    if (JS_IsUndefined(form)) {
 		jsThis = JS_GetGlobalObject(ctx);
 	    } else {
-		jsThis = JS_NewObject(ctx);
-		JS_SetPropertyStr(ctx, jsThis, "form", form);
+		jsThis = form;
 	    }
 
 #ifdef SCRIPT_DEBUG
@@ -6042,8 +6080,13 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
 	    }
 #endif
 
-	    ret = backtrace(ctx, script, JS_Call(ctx, ctxstate->funcs[idx], jsThis, 0, NULL));
+	    JSValue event = JS_Eval(ctx, ev_str, strlen(ev_str), "<input>", EVAL_FLAG);
+	    JS_SetPropertyStr(ctx, event, "currentTarget", JS_DupValue(ctx, jsThis));
+	    JS_SetPropertyStr(ctx, event, "target", JS_DupValue(ctx, jsThis));
+
+	    ret = backtrace(ctx, script, JS_Call(ctx, ctxstate->funcs[idx], jsThis, 1, &event));
 	    JS_FreeValue(ctx, jsThis);
+	    JS_FreeValue(ctx, event);
 
 	    return ret;
 	}
@@ -6052,11 +6095,10 @@ js_eval2_this(JSContext *ctx, int formidx, char *script) {
     if (JS_IsUndefined(form)) {
 	ret = js_eval2(ctx, script);
     } else {
-	JSValue jsThis = JS_NewObject(ctx);
-	JS_SetPropertyStr(ctx, jsThis, "form", form);
+	script = replace_event(script, ev_str);
 	ret = backtrace(ctx, script,
-			JS_EvalThis(ctx, jsThis, script, strlen(script), "<input>", EVAL_FLAG));
-	JS_FreeValue(ctx, jsThis);
+			JS_EvalThis(ctx, form, script, strlen(script), "<input>", EVAL_FLAG));
+	JS_FreeValue(ctx, form);
     }
 
     return ret;
@@ -6094,6 +6136,24 @@ js_reset_functions(JSContext *ctx) {
     ctxstate->nfuncs = 0;
 }
 
+static int
+check_same_function(JSContext *ctx, CtxState *ctxstate, const char *func)
+{
+    int i;
+
+    for (i = 0; i < ctxstate->nfuncs; i++) {
+	const char *str = JS_ToCString(ctx, ctxstate->funcs[i]);
+	int ret = strcmp(func, str);
+	JS_FreeCString(ctx, str);
+
+	if (ret == 0) {
+	    return i;
+	}
+    }
+
+    return -1;
+}
+
 Str
 js_get_function(JSContext *ctx, char *script) {
     JSValue value = js_eval2(ctx, script);
@@ -6103,13 +6163,20 @@ js_get_function(JSContext *ctx, char *script) {
 	str = NULL;
     } else {
 	CtxState *ctxstate = JS_GetContextOpaque(ctx);
-	if (ctxstate->nfuncs % 16 == 0) {
-	    ctxstate->funcs = GC_REALLOC(ctxstate->funcs,
-					 sizeof(JSValue) * (ctxstate->nfuncs + 16));
+	const char *func = JS_ToCString(ctx, value);
+	int id = check_same_function(ctx, ctxstate, func);
+	JS_FreeCString(ctx, func);
+
+	if (id == -1) {
+	    if (ctxstate->nfuncs % 16 == 0) {
+		ctxstate->funcs = GC_REALLOC(ctxstate->funcs,
+					     sizeof(JSValue) * (ctxstate->nfuncs + 16));
+	    }
+	    id = ctxstate->nfuncs;
+	    ctxstate->nfuncs++;
 	}
-	ctxstate->funcs[ctxstate->nfuncs] = value;
-	str = Sprintf("func_id:%d", ctxstate->nfuncs);
-	ctxstate->nfuncs++;
+	ctxstate->funcs[id] = value;
+	str = Sprintf("func_id:%d", id);
     }
 
     return str;
@@ -6307,15 +6374,9 @@ set_attribute(JSContext *ctx, JSValue jsnode, xmlNode *node)
 	if (n && n->type == XML_TEXT_NODE) {
 	    args[1] = JS_NewString(ctx, (char*)n->content);
 	    name = to_lower((char*)attr->name);
-#ifdef DOM_DEBUG
-	    fprintf(fp, "attr %s=%s ", name, n->content);
-#endif
 	} else {
 	    name = (char*)attr->name;
 	    args[1] = JS_NULL;
-#ifdef DOM_DEBUG
-	    fprintf(fp, "attr %s", name);
-#endif
 	}
 	args[0] = JS_NewString(ctx, name);
 	element_set_attribute(ctx, jsnode, 2, args);

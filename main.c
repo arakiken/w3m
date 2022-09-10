@@ -3462,18 +3462,18 @@ followForm(FormList *fl)
 
 #ifdef USE_JAVASCRIPT
 static int
-script_eval_intern(Buffer *buf, char *script, int buf2js, int js2buf, FormList *fl, Str *output)
+script_eval_intern(Buffer *buf, char *script, int buf2js, int js2buf, FormItemList *fi, Str *output, char *ev_type)
 {
     /* remove "return" at the beginning of the script to avoid quickjs error. */
     while (*script == ' ' || *script == '\t') { script++; }
     if (strncmp(script, "return", 6) == 0) { script += 6; }
     while (*script == ' ' || *script == '\t') { script++; }
 
-    return script_eval(buf, "javascript", script, buf2js, js2buf, 0, fl, output);
+    return script_eval(buf, "javascript", script, buf2js, js2buf, 0, fi, output, ev_type);
 }
 
 static int
-script_eval_and_load(Buffer *buf, GeneralList *scripts, FormList *fl)
+script_eval_and_load(Buffer *buf, GeneralList *scripts, FormItemList *fi, char *ev_type)
 {
     Str output = NULL;
     int ret = 1;
@@ -3484,7 +3484,7 @@ script_eval_and_load(Buffer *buf, GeneralList *scripts, FormList *fl)
     for (item = scripts->last; item != NULL; item = item->prev) {
 	Str tmp = NULL;
 	ret &= script_eval_intern(buf, ((Str)item->ptr)->ptr, buf2js,
-				  item->next == NULL ? 1 : 0, fl, &tmp);
+				  item->next == NULL ? 1 : 0, fi, &tmp, ev_type);
 	buf2js = 0;
 	if (tmp != NULL) {
 	    if (output == NULL) {
@@ -3521,14 +3521,14 @@ trigger_click_event(Buffer *buf, FormItemList *fi)
 	    ListItem *item;
 	    for (item = fi->parent->onsubmit->first; item != NULL; item = item->next) {
 		script_eval(Currentbuf, "javascript", ((Str)item->ptr)->ptr,
-			    -1, 1, 0, fi->parent, NULL);
+			    -1, 1, 0, fi, NULL, "submit");
 	    }
 	    ret = 1;
 	}
     case FORM_INPUT_IMAGE:
     case FORM_INPUT_BUTTON:
 	if (fi->onclick) {
-	    script_eval_and_load(buf, fi->onclick, fi->parent);
+	    script_eval_and_load(buf, fi->onclick, fi, "click");
 	    ret = 1;
 	}
     }
@@ -3576,7 +3576,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onkeyup || fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fl);
+	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fi, "keyup");
 	    break;
 	}
 #endif
@@ -3627,7 +3627,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onkeyup || fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fl);
+	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fi, "keyup");
 	    break;
 	}
 #endif
@@ -3665,7 +3665,7 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onchange, fl);
+	    script_eval_and_load(Currentbuf, fi->onchange, fi, "change");
 	    break;
 	}
 #endif
@@ -3679,7 +3679,7 @@ _followForm(int submit, FormList *fl)
 	    ListItem *item;
 	    int ret = 1;
 	    for (item = fl->onsubmit->first; item != NULL; item = item->next) {
-		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fl, NULL);
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fi, NULL, "submit");
 	    }
 	    if (!ret) {
 		break;
@@ -3691,7 +3691,7 @@ _followForm(int submit, FormList *fl)
       do_submit:
 #ifdef USE_JAVASCRIPT
 	if (fi->onclick) {
-	    script_eval_and_load(Currentbuf, fi->onclick, fl);
+	    script_eval_and_load(Currentbuf, fi->onclick, fi, "click");
 	    break;
 	}
 #endif
@@ -3752,7 +3752,7 @@ _followForm(int submit, FormList *fl)
 	    ListItem *item;
 	    int ret = 1;
 	    for (item = fl->onreset->first; item != NULL; item = item->next) {
-		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fl, NULL);
+		ret &= script_eval_intern(Currentbuf, ((Str)item->ptr)->ptr, -1, 1, fi, NULL, "reset");
 	    }
 	    if (!ret) {
 		break;
@@ -7111,7 +7111,7 @@ jWindowOpen(Buffer *buf, char *url, char *target)
     union frameset_element *f_element = NULL;
     Buffer *b;
     ParsedURL u;
-    int i, t = FALSE;
+    int t = FALSE;
 
     if (CurrentTab == NULL || Currentbuf == NULL)
 	return;
