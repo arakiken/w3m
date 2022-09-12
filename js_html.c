@@ -204,7 +204,8 @@ add_event_listener(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *
 	strcmp(str, "click") != 0 && strcmp(str, "keypress") != 0 &&
 	strcmp(str, "keydown") != 0 && strcmp(str, "keyup") != 0 &&
 	strcmp(str, "input") != 0 && strcmp(str, "focus") != 0 &&
-	strcmp(str, "message") != 0 && strcmp(str, "change") != 0 && strcmp(str, "online") != 0)
+	strcmp(str, "message") != 0 && strcmp(str, "change") != 0 && strcmp(str, "online") != 0 &&
+	strcmp(str, "resize") != 0)
 #endif
     {
 	FILE *fp = fopen("scriptlog.txt", "a");
@@ -2618,6 +2619,21 @@ element_child_element_count_get(JSContext *ctx, JSValueConst jsThis)
     return JS_EvalThis(ctx, jsThis, "this.children.length;", 21, "<input>", EVAL_FLAG);
 }
 
+static JSValue
+element_attach_shadow(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
+{
+    JSValue type = JS_NewString(ctx, "shadow");
+    JSValue element;
+
+    log_msg("XXX Element.attachShadow");
+
+    element = html_element_new(ctx, jsThis, 1, &type);
+    JS_SetPropertyStr(ctx, jsThis, "shadowRoot", element);
+    JS_FreeValue(ctx, type);
+
+    return element;
+}
+
 static const JSCFunctionListEntry NodeFuncs[] = {
     /* EventTarget */
     JS_CFUNC_DEF("addEventListener", 1, add_event_listener),
@@ -2675,6 +2691,7 @@ static const JSCFunctionListEntry ElementFuncs[] = {
     JS_CGETSET_DEF("className", element_class_name_get, element_class_name_set),
     JS_CFUNC_DEF("remove", 1, element_remove),
     JS_CGETSET_DEF("childElementCount", element_child_element_count_get, NULL),
+    JS_CFUNC_DEF("attachShadow", 1, element_attach_shadow),
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "HTMLElement", JS_PROP_CONFIGURABLE),
 };
 
@@ -4714,7 +4731,29 @@ js_html_init(Buffer *buf)
 #if 1
 	"function dump_tree(e, head) {"
 	"  for (let i = 0; i < e.children.length; i++) {"
-	"    console.log(head + e.children[i].tagName + \"(id: \" + e.children[i].id + \" name: \" + e.children[i].name + \" value: \" + e.children[i].nodeValue + \" \" + e.children[i].nodeType + \" \" + e.children[i].onload + \")\");"
+	"    let line = head + e.children[i].tagName;"
+	"    [\"id\", \"name\", \"value\", \"nodeValue\", \"nodeType\", \"src\","
+	"     \"srcdoc\", \"style\", \"className\"].forEach(function (key) {"
+	"      if (e.children[i][key]) {"
+	"        if (key === \"style\") {"
+	"          line += \" style={\";"
+	"          [\"position\", \"visibility\", \"display\", \"width\","
+	"           \"height\", \"padding\", \"border\", \"title\"].forEach(function (key2) {"
+	"            if (e.children[i][key][key2]) {"
+	"              line += (key2 + \"=\" + e.children[i][key][key2] + \",\");"
+	"            }"
+	"          });"
+	"          line += \"}\";"
+	"        } else {"
+	"          line += (\" \" + key + \"=\" + e.children[i][key]);"
+	"        }"
+	"      }"
+	"    });"
+	"    console.log(line);"
+	"    if (e.children[i].contentDocument) {"
+	"      console.log(head + \"==> contentDocument\");"
+	"      dump_tree(e.children[i].contentDocument, head + \" \");"
+	"    }"
 	"    if (e.children[i] === e.parentNode) {"
 	"      console.log(\"HIERARCHY_ERR\");"
 	"    } else {"
@@ -5196,6 +5235,10 @@ js_html_init(Buffer *buf)
 	"function w3m_textNodesToStr(node) {"
 	"  let str = \"\";"
 	"  for (let i = 0; i < node.childNodes.length; i++) {"
+	"    if (node.childNodes[i].nodeName.toUpperCase() === \"IFRAME\" ||"
+	"        node.childNodes[i].nodeName.toUpperCase() === \"OBJECT\") {"
+	"      str += w3m_textNodesToStr(node.childNodes[i].contentDocument);"
+	"    }"
 	"    if (node.childNodes[i].nodeName === \"#text\" &&"
 	"        node.childNodes[i].nodeValue != null &&"
 	"        node.childNodes[i].isModified == true) {"
@@ -5305,7 +5348,8 @@ js_html_init(Buffer *buf)
 	"          event.type === \"DOMContentLoaded\" ||"
 	"          event.type === \"readystatechange\" ||"
 	"          event.type === \"visibilitychange\" ||"
-	"          event.type === \"online\") {"
+	"          event.type === \"online\" ||"
+	"          event.type === \"resize\") {"
 	"        if (typeof event.listener === \"function\") {"
 	"          event.listener(event);"
 	"        } else if (event.listener.handleEvent &&"
@@ -5830,11 +5874,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "//フォロイー一覧";
+    const char seq[] = "u=n(0),c=new i(function(t){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "\nconsole.log(\"TEST\");dump_function(document);try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }");
+	Strcat_charp(str, "console.log(\"TEST\" + t);");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
