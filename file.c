@@ -4293,7 +4293,7 @@ feed_textarea(char *str)
 }
 
 #ifdef USE_SCRIPT
-static Str
+Str
 #ifdef USE_M17N
 load_script_src(char *url, ParsedURL *baseURL, wc_ces charset)
 #else

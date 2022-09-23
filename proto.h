@@ -250,6 +250,11 @@ extern int script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js
 extern void script_close(Buffer *buf);
 extern void process_html_str(Buffer *buf, char *html_str);
 extern void jWindowOpen(Buffer *buf, char *url, char *target);
+#ifdef USE_M17N
+extern Str load_script_src(char *url, ParsedURL *baseURL, wc_ces charset);
+#else
+extern Str load_script_src(char *url, ParsedURL *baseURL);
+#endif
 extern int trigger_click_event(Buffer *buf, FormItemList *fi);
 extern int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf);
 #endif

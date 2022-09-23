@@ -778,6 +778,7 @@ get_document_event(void *interp, const char *type)
     return js_get_function(interp, script);
 }
 
+#if 0
 static void
 reset_func_list(GeneralList *list)
 {
@@ -793,6 +794,9 @@ reset_func_list(GeneralList *list)
 	}
     }
 }
+#else
+#define reset_func_list(list)
+#endif
 
 static void
 push_func(GeneralList **list, Str func)
@@ -1395,7 +1399,8 @@ script_js_close(Buffer *buf)
 }
 #endif
 
-int trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
+int
+trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 {
     int ret;
 

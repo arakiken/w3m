@@ -3576,7 +3576,12 @@ _followForm(int submit, FormList *fl)
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
 	if (fi->onkeyup || fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fi, "keyup");
+	    if (fi->onkeyup) {
+		script_eval_and_load(Currentbuf, fi->onkeyup, fi, "keyup");
+	    }
+	    if (fi->onchange) {
+		script_eval_and_load(Currentbuf, fi->onchange, fi, "change");
+	    }
 	    break;
 	}
 #endif
@@ -3626,8 +3631,13 @@ _followForm(int submit, FormList *fl)
 	input_textarea(fi);
 	formUpdateBuffer(a, Currentbuf, fi);
 #ifdef USE_JAVASCRIPT
-	if (fi->onkeyup || fi->onchange) {
-	    script_eval_and_load(Currentbuf, fi->onkeyup ? fi->onkeyup : fi->onchange, fi, "keyup");
+	if (fi->onkeyup) {
+	    if (fi->onkeyup) {
+		script_eval_and_load(Currentbuf, fi->onkeyup, fi, "keyup");
+	    }
+	    if (fi->onchange) {
+		script_eval_and_load(Currentbuf, fi->onchange, fi, "change");
+	    }
 	    break;
 	}
 #endif

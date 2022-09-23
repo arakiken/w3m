@@ -27,6 +27,10 @@ typedef struct _CtxState {
 #define EVAL_FLAG JS_EVAL_FLAG_STRICT
 #endif
 
+#if 0
+#define DUMP_NETWORK
+#endif
+
 JSClassID WindowClassID = 1; /* JS_CLASS_OBJECT */
 JSClassID LocationClassID;
 JSClassID DocumentClassID;
@@ -1661,9 +1665,89 @@ dom_exception_new(JSContext *ctx, int code, const char *name, const char *messag
     return e;
 }
 
+static void
+load_and_eval_script(JSContext *ctx, const char *src_url)
+{
+    CtxState *ctxstate = JS_GetContextOpaque(ctx);
+    Str script;
+    char *url = allocStr(src_url, -1);
+
+#ifdef USE_M17N
+    script = load_script_src(url,
+			     ctxstate->buf->baseURL ?
+			     ctxstate->buf->baseURL : &ctxstate->buf->currentURL,
+			     ctxstate->buf->document_charset);
+#else
+    script = load_script_src(url,
+			     ctxstate->buf->baseURL ?
+			     ctxstate->buf->baseURL : &ctxstate->buf->currentURL);
+#endif
+
+    if (script) {
+#if 0
+	char *beg = script->ptr;
+	char *p;
+	const char seq[] = "function t(x,t){";
+	Str str = Strnew();
+	while ((p = strstr(beg, seq))) {
+	    Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	    Strcat_charp(str, "console.log(\"TEST2\" + x + t);");
+	    beg = p + sizeof(seq) - 1;
+	}
+	Strcat_charp(str, beg);
+	script = str;
+#endif
+
+#ifdef DUMP_NETWORK
+	log_msg(Sprintf("====> from %s", src_url)->ptr);
+	log_msg(script->ptr);
+	log_msg(Sprintf("<==== from %s", src_url)->ptr);
+#endif
+
+	JS_FreeValue(ctx, backtrace(ctx, script->ptr,
+				    JS_Eval(ctx, script->ptr, strlen(script->ptr),
+					    "<input>", EVAL_FLAG)));
+    }
+}
+
+#ifdef USE_LIBXML2
+static void create_tree_from_html(JSContext *ctx, JSValue parent, const char *html);
+#endif
+
+static void
+load_and_insert_html(JSContext *ctx, JSValue jsThis, const char *src_url)
+{
+    CtxState *ctxstate = JS_GetContextOpaque(ctx);
+    Str html;
+    char *url = allocStr(src_url, -1);
+
+#ifdef USE_M17N
+    html = load_script_src(url,
+			   ctxstate->buf->baseURL ?
+			   ctxstate->buf->baseURL : &ctxstate->buf->currentURL,
+			   ctxstate->buf->document_charset);
+#else
+    html = load_script_src(url,
+			   ctxstate->buf->baseURL ?
+			   ctxstate->buf->baseURL : &ctxstate->buf->currentURL);
+#endif
+
+    if (html) {
+#ifdef DUMP_NETWORK
+	log_msg(Sprintf("====> from %s", src_url)->ptr);
+	log_msg(html->ptr);
+	log_msg(Sprintf("<==== from %s", src_url)->ptr);
+#endif
+
+#ifdef USE_LIBXML2
+	create_tree_from_html(ctx, jsThis, html->ptr);
+#endif
+    }
+}
+
 static JSValue
 node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc,
-				   JSValueConst *argv, int append_child)
+				   JSValueConst *argv, int append_child, int innerhtml)
 {
     JSValue val;
     JSValue doc;
@@ -1796,6 +1880,21 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 
 	if (tag != NULL) {
 	    if (strcasecmp(tag, "script") == 0) {
+		if (innerhtml) {
+		    JSValue src = JS_GetPropertyStr(ctx, argv[0], "src");
+		    if (JS_IsString(src)) {
+			const char *str = JS_ToCString(ctx, src);
+			if (str) {
+#if 0
+			    log_msg(Sprintf("XXX Add SCRIPT tag whose src attr is %s", str)->ptr);
+#endif
+			    load_and_eval_script(ctx, str);
+			    JS_FreeCString(ctx, str);
+			}
+		    }
+		    JS_FreeValue(ctx, src);
+		}
+
 		add_node_to(ctx, argv[0], "scripts");
 	    } else if (strcasecmp(tag, "img") == 0) {
 		add_node_to(ctx, argv[0], "images");
@@ -1809,6 +1908,19 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 		    add_node_to(ctx, argv[0], "forms");
 		}
 		JS_FreeValue(ctx, doc2);
+	    } else if (strcasecmp(tag, "iframe") == 0) {
+		JSValue src = JS_GetPropertyStr(ctx, argv[0], "src");
+		if (JS_IsString(src)) {
+		    const char *str = JS_ToCString(ctx, src);
+		    if (str) {
+#if 1
+			log_msg(Sprintf("XXX Add IFRAME tag whose src attr is %s", str)->ptr);
+#endif
+			load_and_insert_html(ctx, argv[0], str);
+			JS_FreeCString(ctx, str);
+		    }
+		}
+		JS_FreeValue(ctx, src);
 	    }
 #if 0
 	    else if (strcasecmp(tag, "select") == 0 ||
@@ -1839,13 +1951,13 @@ node_append_child_or_insert_before(JSContext *ctx, JSValueConst jsThis, int argc
 static JSValue
 node_append_child(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 1);
+    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 1, 1);
 }
 
 static JSValue
 node_insert_before(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
-    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 0);
+    return node_append_child_or_insert_before(ctx, jsThis, argc, argv, 0, 1);
 }
 
 static JSValue
@@ -3302,9 +3414,11 @@ document_close(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv
 static void
 insert_dom_tree(JSContext *ctx, const char *html)
 {
+#ifdef USE_LIBXML2
     JSValue parent = JS_Eval(ctx, "document.head;", 14, "<input>", EVAL_FLAG);
     create_tree_from_html(ctx, parent, html);
     JS_FreeValue(ctx, parent);
+#endif
 }
 
 static JSValue
@@ -3768,19 +3882,19 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
     }
     ISclose(uf.stream);
 
-#if 0
+#ifdef DUMP_NETWORK
     {
 	FILE *fp = fopen("scriptlog.txt", "a");
 	TextListItem *i;
 
-	fprintf(fp, "====> RESPONSE %d from %s:\n",
+	fprintf(fp, "====> XML_HTTP_REQ RESPONSE %d from %s:\n",
 		http_response_code, parsedURL2Str(&ctxstate->buf->currentURL)->ptr);
 	for (i = state->response_headers->first; i != NULL; i = i->next) {
 	    fprintf(fp, i->ptr);
 	    fprintf(fp, "\n");
 	}
 	fprintf(fp, str->ptr);
-	fprintf(fp, "====\n");
+	fprintf(fp, "<==== XML_HTTP_REQ RESPONSE");
 	fclose(fp);
     }
 #endif
@@ -3919,6 +4033,7 @@ static struct interval_callback {
     int argc;
     int is_timeout;
     int is_running;
+    int is_destroyed;
 } *interval_callbacks;
 static u_int num_interval_callbacks;
 
@@ -4019,6 +4134,8 @@ set_interval_intern(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 	interval_callbacks[idx].delay = interval_callbacks[idx].cur_delay;
     }
 
+    interval_callbacks[idx].is_destroyed = 0;
+
 #if 0
     {
 	const char *str = JS_ToCString(ctx, argv[0]);
@@ -4058,7 +4175,17 @@ destroy_interval_callback(struct interval_callback *cb)
 	JS_FreeValue(cb->ctx, cb->argv[i]);
     }
     cb->argv = NULL; /* for garbage collector */
-    JS_FreeValue(cb->ctx, cb->func);
+
+    if (!cb->is_running) {
+	JS_FreeValue(cb->ctx, cb->func);
+    } else {
+	/*
+	 * clearInterval() can use cb->func internally after
+	 * destroy_interval_callback() is called.
+	 */
+	cb->is_destroyed = 1;
+    }
+
     cb->ctx = NULL;
 }
 
@@ -4151,6 +4278,10 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 					    interval_callbacks[i].func,
 					    JS_NULL, interval_callbacks[i].argc,
 					    interval_callbacks[i].argv));
+		    /* See destroy_interval_callback() */
+		    if (interval_callbacks[i].is_destroyed) {
+			JS_FreeValue(ctx, interval_callbacks[i].func);
+		    }
 #ifdef SCRIPT_DEBUG
 		    JS_FreeCString(ctx, script);
 #endif
@@ -5874,11 +6005,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "u=n(0),c=new i(function(t){";
+    const char seq[] = "function t(x,t){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"TEST\" + t);");
+	Strcat_charp(str, "console.log(\"TEST3\");");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
@@ -6341,7 +6472,6 @@ js_get_document(JSContext *ctx)
 static JSValue
 find_form(JSContext *ctx, xmlNode *node)
 {
-#ifndef USE_LIBXML2
     xmlAttr *attr;
 
     for (attr = node->properties; attr != NULL; attr = attr->next) {
@@ -6384,9 +6514,29 @@ find_form(JSContext *ctx, xmlNode *node)
 		return backtrace(ctx, script,
 				 JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
 	    }
+	} else if (strcasecmp((char*)attr->name, "class") == 0) {
+	    n = attr->children;
+	    if (n && n->type == XML_TEXT_NODE) {
+		char *script =
+		    Sprintf("{"
+			    "  let ret = new Array();"
+			    "  for (let i = 0; i < document.forms.length; i++) {"
+			    "    w3m_getElementsByClassName(document.forms[i], \"%s\", ret);"
+			    "    if (ret.length > 0) {"
+			    "      break;"
+			    "    }"
+			    "  }"
+			    "  if (ret.length > 0) {"
+			    "    ret[0];"
+			    "  } else {"
+			    "    null;"
+			    "  }"
+			    "}", (char*)n->content)->ptr;
+		return backtrace(ctx, script,
+				 JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
+	    }
 	}
     }
-#endif
 
     return JS_NULL;
 }
@@ -6447,8 +6597,11 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 		 strcasecmp((char*)node->name, "INPUT") == 0 ||
 		 strcasecmp((char*)node->name, "TEXTAREA") == 0 ||
 		 strcasecmp((char*)node->name, "BUTTON") == 0)) {
+#if 0
 		jsnode = find_form(ctx, node);
-		if (!JS_IsNull(jsnode)) {
+		if (!JS_IsNull(jsnode))
+#endif
+		{
 		    goto child_tree;
 		}
 	    }
@@ -6514,7 +6667,7 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	    continue;
 	}
 
-	JS_FreeValue(ctx, node_append_child(ctx, jsparent, 1, &jsnode));
+	JS_FreeValue(ctx, node_append_child_or_insert_before(ctx, jsparent, 1, &jsnode, 1, innerhtml));
 
 #ifdef DOM_DEBUG
 	fclose(fp);
