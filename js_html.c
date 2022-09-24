@@ -1378,6 +1378,11 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 	    "}";
 	JS_SetPropertyStr(ctx, obj, "contentDocument",
 			  JS_Eval(ctx, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+    } else if (strcasecmp(str, "META") == 0) {
+	JS_SetPropertyStr(ctx, obj, "content", JS_NewString(ctx, ""));
+	JS_SetPropertyStr(ctx, obj, "httpEquiv", JS_NewString(ctx, ""));
+	JS_SetPropertyStr(ctx, obj, "name", JS_NewString(ctx, ""));
+	JS_SetPropertyStr(ctx, obj, "scheme", JS_NewString(ctx, ""));
     }
 
     JS_FreeCString(ctx, str);
@@ -3346,6 +3351,12 @@ navigator_cookieenabled_get(JSContext *ctx, JSValueConst jsThis)
 }
 
 static JSValue
+navigator_platform_get(JSContext *ctx, JSValueConst jsThis)
+{
+    return JS_NewString(ctx, "");
+}
+
+static JSValue
 navigator_send_beacon(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 {
     log_msg("XXX: Navigator.sendBeacon");
@@ -3362,6 +3373,7 @@ static const JSCFunctionListEntry NavigatorFuncs[] = {
     JS_CGETSET_DEF("language", navigator_language_get, NULL),
     JS_CGETSET_DEF("vendor", navigator_vendor_get, NULL),
     JS_CGETSET_DEF("onLine", navigator_online_get, NULL),
+    JS_CGETSET_DEF("platform", navigator_platform_get, NULL), /* XXX DEPRECATED */
     JS_CFUNC_DEF("sendBeacon", 1, navigator_send_beacon),
 
     JS_PROP_STRING_DEF("[Symbol.toStringTag]", "Navigator", JS_PROP_CONFIGURABLE),
@@ -3894,7 +3906,7 @@ xml_http_request_send(JSContext *ctx, JSValueConst jsThis, int argc, JSValueCons
 	    fprintf(fp, "\n");
 	}
 	fprintf(fp, str->ptr);
-	fprintf(fp, "<==== XML_HTTP_REQ RESPONSE");
+	fprintf(fp, "<==== XML_HTTP_REQ RESPONSE\n");
 	fclose(fp);
     }
 #endif
@@ -6469,6 +6481,7 @@ js_get_document(JSContext *ctx)
 #ifdef USE_LIBXML2
 
 #ifdef LIBXML_TREE_ENABLED
+#if 0
 static JSValue
 find_form(JSContext *ctx, xmlNode *node)
 {
@@ -6540,6 +6553,7 @@ find_form(JSContext *ctx, xmlNode *node)
 
     return JS_NULL;
 }
+#endif
 
 static void
 create_dtd(JSContext *ctx, xmlDtd *dtd, JSValue doc)
@@ -6591,20 +6605,20 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 	JSValue jsnode;
 
 	if (node->type == XML_ELEMENT_NODE) {
+	    /* XXX Node has only one parent */
+#if 0
 	    if (!innerhtml &&
 		(strcasecmp((char*)node->name, "FORM") == 0 ||
 		 strcasecmp((char*)node->name, "SELECT") == 0 ||
 		 strcasecmp((char*)node->name, "INPUT") == 0 ||
 		 strcasecmp((char*)node->name, "TEXTAREA") == 0 ||
 		 strcasecmp((char*)node->name, "BUTTON") == 0)) {
-#if 0
 		jsnode = find_form(ctx, node);
-		if (!JS_IsNull(jsnode))
-#endif
-		{
+		if (!JS_IsNull(jsnode)) {
 		    goto child_tree;
 		}
 	    }
+#endif
 
 #ifdef DOM_DEBUG
 	    fprintf(fp, "element %s ", node->name);
@@ -6672,7 +6686,9 @@ create_tree(JSContext *ctx, xmlNode *node, JSValue jsparent, int innerhtml)
 #ifdef DOM_DEBUG
 	fclose(fp);
 #endif
+#if 0
     child_tree:
+#endif
 	create_tree(ctx, node->children, jsnode, innerhtml);
 #ifdef DOM_DEBUG
 	fp = fopen("domlog.txt", "a");

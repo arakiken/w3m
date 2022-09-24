@@ -614,6 +614,7 @@ script_buf2js(Buffer *buf, void *interp)
     js_eval(interp,
 	    Sprintf("screen.width = screen.availWidth = document.body.clientWidth = document.documentElement.clientWidth = window.innerWidth = window.outerWidth = %d;"
 		    "screen.height = screen.availHeight = document.body.clientHeight = document.documentElement.clientHeight = window.innerHeight = window.outerHeight = %d;"
+		    "screen.colorDepth = screen.pixelDepth = 24;"
 		    "window.scrollX = window.scrollY = document.body.scrollLeft = document.body.scrollTop = document.documentElement.scrollLeft = document.documentElement.scrollTop = 0;",
 		    buf->COLS * term_ppc, buf->LINES * term_ppl)->ptr);
 
@@ -1284,6 +1285,8 @@ script_js2buf(Buffer *buf, void *interp)
 	    state->cookie_changed = 0;
 	}
 
+	/* XXX Not support Document.open yet. */
+#if 0
 	if (state->open) {
 	    if (CurrentTab != NULL) {
 		Buffer *new_buf = nullBuffer();
@@ -1291,14 +1294,15 @@ script_js2buf(Buffer *buf, void *interp)
 		if (new_buf != NULL) {
 		    pushBuffer(new_buf);
 		}
-
 		if (state->write) {
-		    process_html_str(new_buf, u2is(state->write)->ptr);
+		    process_html_str(Currentbuf, u2is(state->write)->ptr);
 		    state->write = NULL;
 		}
 	    }
 	    state->open = 0;
-	} else if (state->write) {
+	} else
+#endif
+	if (state->write) {
 	    ret = u2is(state->write);
 	    state->write = NULL;
 	}
