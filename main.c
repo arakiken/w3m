@@ -3469,7 +3469,7 @@ script_eval_intern(Buffer *buf, char *script, int buf2js, int js2buf, FormItemLi
     if (strncmp(script, "return", 6) == 0) { script += 6; }
     while (*script == ' ' || *script == '\t') { script++; }
 
-    return script_eval(buf, "javascript", script, buf2js, js2buf, 0, fi, output, ev_type);
+    return script_eval(buf, "javascript", script, buf2js, js2buf, 0, fi, output, ev_type, 0);
 }
 
 static int
@@ -3521,7 +3521,7 @@ trigger_click_event(Buffer *buf, FormItemList *fi)
 	    ListItem *item;
 	    for (item = fi->parent->onsubmit->first; item != NULL; item = item->next) {
 		script_eval(Currentbuf, "javascript", ((Str)item->ptr)->ptr,
-			    -1, 1, 0, fi, NULL, "submit");
+			    -1, 1, 0, fi, NULL, "submit", 0);
 	    }
 	    ret = 1;
 	}

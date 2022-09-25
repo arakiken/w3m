@@ -1442,7 +1442,7 @@ trigger_interval(Buffer *buf, int msec, int buf2js, int js2buf)
 
 int
 script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int onload,
-	    FormItemList *fi, Str *output, char *ev_type)
+	    FormItemList *fi, Str *output, char *ev_type, int is_script_tag)
 {
     if (buf == NULL) {
 	return 0;
@@ -1456,9 +1456,22 @@ script_eval(Buffer *buf, char *lang, char *script, int buf2js, int js2buf, int o
 #ifdef USE_JAVASCRIPT
     if (! strcasecmp(lang, "javascript") ||
 	! strcasecmp(lang, "jscript")) {
+	int ret;
+
 	buf->script_lang = lang;
 
-	return script_js_eval(buf, script, buf2js, js2buf, onload, fi, output, ev_type);
+	ret = script_js_eval(buf, script, buf2js, js2buf, onload, fi, output, ev_type);
+
+	if (is_script_tag) {
+	    if (js2buf) {
+		js_eval(buf->script_interp, "document.currentScriptIndex = -1;");
+	    } else {
+		js_eval(buf->script_interp,
+			"if (document.currentScriptIndex >= 0) { document.currentScriptIndex++; }");
+	    }
+	}
+
+	return ret;
     } else
 #ifdef SCRIPT_DEBUG
     {

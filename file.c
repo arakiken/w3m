@@ -1835,7 +1835,7 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 	    script_eval(Currentbuf, "JavaScript",
 			wc_Str_conv(Str_url_unquote(Strnew_charp(pu.file), FALSE, FALSE),
 				    Currentbuf->document_charset, WC_CES_UTF_8)->ptr,
-			-1, 1, 0, NULL, &output, NULL);
+			-1, 1, 0, NULL, &output, NULL, 0);
 	    if (Currentbuf->location)
 		return loadGeneralFile(Currentbuf->location, current, referer, flag, NULL);
 	    if (output) {
@@ -4574,7 +4574,7 @@ eval_script_intern(Buffer *buf, int buf2js, int onload)
 	}
 	tmp = NULL;
 	script_eval(buf, script->lang, p, buf2js, l->next == NULL ? 1 : 0,
-		    (onload && l->next == NULL) ? 1 : 0, NULL, &tmp, NULL);
+		    (onload && l->next == NULL) ? 1 : 0, NULL, &tmp, NULL, 1);
 	buf2js = 0;
 	if (script->target) {
 	    buf->script_target = orig_target;

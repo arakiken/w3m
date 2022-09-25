@@ -3403,6 +3403,8 @@ document_new(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
 
     JS_SetOpaque(obj, state);
 
+    JS_SetPropertyStr(ctx, obj, "currentScriptIndex", JS_NewInt32(ctx, 0));
+
     return obj;
 }
 
@@ -3573,7 +3575,15 @@ document_clone_node(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst 
 static JSValue
 document_current_script_get(JSContext *ctx, JSValueConst jsThis)
 {
-    const char script[] = "if (this.scripts.length > 0) { this.scripts[0]; } else { null; }";
+    const char script[] =
+	"if (this.scripts.length == 0) {"
+	"  null;"
+	"} else if (0 <= this.currentScriptIndex &&"
+	"           this.currentScriptIndex < this.scripts.length) {"
+	"  this.scripts[this.currentScriptIndex];"
+	"} else {"
+	"  this.scripts[this.scripts.length - 1];"
+	"}";
 
     return backtrace(ctx, script,
 		     JS_EvalThis(ctx, jsThis, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
@@ -5245,7 +5255,16 @@ js_html_init(Buffer *buf)
 	"  doc.getElementsByTagName = function(name) {"
 	"    name = name.toUpperCase();"
 	"    if (name === \"SCRIPT\") {"
-	"      return this.scripts;"
+	"      /*"
+	"       * (e=document.getElementsByTagName(\"script\"))[e.length - 1] points"
+	"       * document.currentScript."
+	"       * (www.pref.hiroshima.lg.jp)"
+	"       */"
+	"      if (this.currentScriptIndex < 0 || this.scripts.length <= this.currentScriptIndex) {"
+	"        return this.scripts;"
+	"      } else {"
+	"        return this.scripts.slice(0, this.currentScriptIndex + 1);"
+	"      }"
 	"    } else if (name === \"IMG\") {"
 	"      return this.images;"
 	"    }"
@@ -6017,11 +6036,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "function t(x,t){";
+    const char seq[] = "n},Z=function(e){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"TEST3\");");
+	Strcat_charp(str, "console.log(\"TEST3\" + e);");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
