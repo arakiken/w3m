@@ -1291,17 +1291,10 @@ init_children(JSContext *ctx, JSValue obj, const char *tagname)
     }
 }
 
-static JSValue
-style_get_property_value(JSContext *ctx, JSValueConst jsThis, int argc, JSValueConst *argv)
-{
-    return JS_NewString(ctx, "");
-}
-
 static void
 set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 {
     const char *str = JS_ToCString(ctx, tagname);
-    JSValue style;
 
     init_children(ctx, obj, str);
 
@@ -1341,19 +1334,8 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 		      JS_Eval(ctx, "new DOMTokenList();", 19, "<input>", EVAL_FLAG));;
 
     /* HTMLElement */
-    style = JS_NewObject(ctx);
-    JS_SetPropertyStr(ctx, style, "fontSize",
-		      JS_NewString(ctx, Sprintf("%dpx", term_ppl)->ptr));
-    JS_SetPropertyStr(ctx, style, "zoom", JS_NewString(ctx, "normal"));
-    JS_SetPropertyStr(ctx, style, "backgroundColor", JS_NewString(ctx, "black"));
-    JS_SetPropertyStr(ctx, style, "foregroundColor", JS_NewString(ctx, "white"));
-    JS_SetPropertyStr(ctx, style, "getPropertyValue",
-		      JS_NewCFunction(ctx, style_get_property_value, "getPropertyValue", 1));
-    JS_SetPropertyStr(ctx, style, "whiteSpace", JS_NewString(ctx, "normal"));
-    JS_SetPropertyStr(ctx, style, "zIndex", JS_NewInt32(ctx, 0));
-    JS_SetPropertyStr(ctx, style, "visibility", JS_NewString(ctx, "visible"));
-    JS_SetPropertyStr(ctx, style, "display", JS_NewString(ctx, ""));
-    JS_SetPropertyStr(ctx, obj, "style", style);
+    JS_SetPropertyStr(ctx, obj, "style",
+		      JS_Eval(ctx, "new CSSStyleDeclaration();", 26, "<input>", EVAL_FLAG));
 
     JS_SetPropertyStr(ctx, obj, "lang", JS_NewString(ctx, "unknown"));
 
@@ -1378,6 +1360,11 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
 	    "}";
 	JS_SetPropertyStr(ctx, obj, "contentDocument",
 			  JS_Eval(ctx, script, sizeof(script) - 1, "<input>", EVAL_FLAG));
+
+	if (strcasecmp(str, "IFRAME") == 0) {
+	    JS_SetPropertyStr(ctx, obj, "sandbox",
+			      JS_Eval(ctx, "new DOMTokenList();", 19, "<input>", EVAL_FLAG));
+	}
     } else if (strcasecmp(str, "META") == 0) {
 	JS_SetPropertyStr(ctx, obj, "content", JS_NewString(ctx, ""));
 	JS_SetPropertyStr(ctx, obj, "httpEquiv", JS_NewString(ctx, ""));
@@ -4590,6 +4577,12 @@ js_html_init(Buffer *buf)
 	"  }"
 	"};"
 	""
+	"globalThis.CSS = class CSS {"
+	"  static supports(...args) {"
+	"    return true;"
+	"  }"
+	"};"
+	""
 	"globalThis.IntersectionObserver = class IntersectionObserver {"
 	"  constructor(callback) {"
 	"    this.callback = callback;"
@@ -5160,7 +5153,7 @@ js_html_init(Buffer *buf)
 	"  });"
 	""
 	"  doc.createDocumentFragment = function() {"
-	"    let doc = new Document();"
+	"    let doc = new DocumentFragment();"
 	"    w3m_initDocument(doc);"
 	"    w3m_initDocumentTree(doc);"
 	"    doc.nodeName = \"#document-fragment\";"
@@ -5393,6 +5386,8 @@ js_html_init(Buffer *buf)
 	"    return this.body;"
 	"  };"
 	"}"
+	""
+	"globalThis.DocumentFragment = class DocumentFragment extends Document {};"
 	""
 	"function w3m_textNodesToStr(node) {"
 	"  let str = \"\";"
@@ -5646,8 +5641,22 @@ js_html_init(Buffer *buf)
 	"  static revokeObjectURL(objectURL) {"
 	"    console.log(\"XXX: URL.revokeObjectURL\");"
 	"  }"
-	"};";
-    const char script3[] =
+	"};"
+	""
+	"HTMLScriptElement.supports = function(type) {"
+	"  if (type === \"classic\") {"
+	"    return false;"
+	"  } else if (type === \"module\") {"
+	"    return false;"
+	"  } else if (type === \"importmap\") {"
+	"    return false;"
+	"  } else if (type === \"speculationrules\") {"
+	"    return false;"
+	"  } else {"
+	"    return false;"
+	"  }"
+	"};"
+	""
 	"globalThis.IDBRequest = class IDBRequest {"
 	"  constructor(result, source) {"
 	"    this.result = result;"
@@ -5839,6 +5848,7 @@ js_html_init(Buffer *buf)
 	"    return new IDBOpenDBRequest(null, this);"
 	"  }"
 	"};";
+    char *script3;
 
     if (term_ppc == 0) {
 	if (!get_pixel_per_cell(&term_ppc, &term_ppl)) {
@@ -5928,8 +5938,27 @@ js_html_init(Buffer *buf)
 
     JS_FreeValue(ctx, backtrace(ctx, script2,
 				JS_Eval(ctx, script2, sizeof(script2) - 1, "<input>", EVAL_FLAG)));
+
+    script3 = Sprintf("globalThis.CSSStyleDeclaration = class CSSStyleDeclaration {"
+		      "  constructor() {"
+		      "    this.fontSize = %d;"
+		      "    this.zoom = \"normal\";"
+		      "    this.backgroundColor = \"black\";"
+		      "    this.foregroundColor = \"white\";"
+		      "    this.whiteSpace = \"normal\";"
+		      "    this.zIndex = 0;"
+		      "    this.visibility = \"visible\";"
+		      "    this.display = \"\";"
+		      "  }"
+		      "  getPropertyValue(key) {"
+		      "    return this[key];"
+		      "  }"
+		      "  setProperty(key, val1, val2) {"
+		      "    this[key] = val1;"
+		      "  }"
+		      "};", term_ppl)->ptr;
     JS_FreeValue(ctx, backtrace(ctx, script3,
-				JS_Eval(ctx, script3, sizeof(script3) - 1, "<input>", EVAL_FLAG)));
+				JS_Eval(ctx, script3, strlen(script3), "<input>", EVAL_FLAG)));
 
     /* window object */
     state = (WindowState *)GC_MALLOC_UNCOLLECTABLE(sizeof(WindowState));
