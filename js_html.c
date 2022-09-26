@@ -1331,7 +1331,11 @@ set_element_property(JSContext *ctx, JSValue obj, JSValue tagname)
     JS_SetPropertyStr(ctx, obj, "scrollTop", JS_NewInt32(ctx, 0));
 
     JS_SetPropertyStr(ctx, obj, "classList",
-		      JS_Eval(ctx, "new DOMTokenList();", 19, "<input>", EVAL_FLAG));;
+		      JS_Eval(ctx, "new DOMTokenList();", 19, "<input>", EVAL_FLAG));
+    /* acid3 test 61 */
+#if 0
+    JS_SetPropertyStr(ctx, obj, "className", JS_NewString(ctx, ""));
+#endif
 
     /* HTMLElement */
     JS_SetPropertyStr(ctx, obj, "style",
@@ -2676,9 +2680,16 @@ element_href_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
     ParsedURL pu;
 
     if ((str = get_str(ctx, val)) == NULL) {
+	/* Stop to raise exception for tiktok.com */
+#if 1
+	log_msg("XXX Element.href: The value is not String.");
+
+	return JS_UNDEFINED;
+#else
 	JS_ThrowTypeError(ctx, "Element.href: The value is not String.");
 
 	return JS_EXCEPTION;
+#endif
     }
 
     parseURL(str->ptr, &pu, NULL);
@@ -4659,6 +4670,9 @@ js_html_init(Buffer *buf)
 	"  stopPropagation() {"
 	"    console.log(\"XXX: Event.stopPropagation\");"
 	"  }"
+	"  stopImmediatePropagation() {"
+	"    console.log(\"XXX: Event.stopPropagation\");"
+	"  }"
 	"};"
 	""
 	"globalThis.CustomEvent = class CustomEvent extends Event {"
@@ -6065,11 +6079,11 @@ js_eval2(JSContext *ctx, char *script) {
 #elif 0
     char *beg = script;
     char *p;
-    const char seq[] = "n},Z=function(e){";
+    const char seq[] = "return function(c,d,e){";
     Str str = Strnew();
     while ((p = strstr(beg, seq))) {
 	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"TEST3\" + e);");
+	Strcat_charp(str, "console.log(\"TEST3\" + e.prototype);");
         beg = p + sizeof(seq) - 1;
     }
     Strcat_charp(str, beg);
