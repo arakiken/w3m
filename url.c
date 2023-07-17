@@ -212,7 +212,7 @@ loadMimeTypes(char *filename)
 }
 
 void
-initMimeTypes()
+initMimeTypes(void)
 {
     int i;
     TextListItem *tl;
@@ -261,7 +261,7 @@ KeyAbort(SIGNAL_ARG)
 SSL_CTX *ssl_ctx = NULL;
 
 void
-free_ssl_ctx()
+free_ssl_ctx(void)
 {
     if (ssl_ctx != NULL)
 	SSL_CTX_free(ssl_ctx);
@@ -272,7 +272,7 @@ free_ssl_ctx()
 #if SSLEAY_VERSION_NUMBER >= 0x00905100
 #include <openssl/rand.h>
 static void
-init_PRNG()
+init_PRNG(void)
 {
     char buffer[256];
     const char *file;
@@ -2344,7 +2344,7 @@ loadURIMethods(char *filename)
 }
 
 void
-initURIMethods()
+initURIMethods(void)
 {
     TextList *methodmap_list = NULL;
     TextListItem *tl;

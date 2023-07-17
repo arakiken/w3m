@@ -15,9 +15,11 @@
 #if defined(__CYGWIN__) && defined(USE_BINMODE_STREAM)
 #include <io.h>
 #endif
+#include "display.h"
 #include "terms.h"
 #include "myctype.h"
 #include "regex.h"
+#include "rc.h"
 #ifdef USE_M17N
 #include "wc.h"
 #include "wtf.h"
@@ -34,6 +36,8 @@ extern int do_getch();
 #define getch()	do_getch()
 #endif				/* defined(USE_GPM) || defined(USE_SYSMOUSE) */
 #endif
+
+#include "util.h"
 
 #ifdef __MINGW32_VERSION
 #include <winsock.h>
@@ -222,6 +226,7 @@ fusage(FILE * f, int err)
     fprintf(f, "    -v               visual startup mode\n");
 #ifdef USE_COLOR
     fprintf(f, "    -M               monochrome display\n");
+    fprintf(f, "    -H               use high-intensity colors\n");
 #endif				/* USE_COLOR */
     fprintf(f,
 	    "    -N               open URL of command line on each new tab\n");
@@ -366,7 +371,7 @@ sig_chld(int signo)
 }
 #endif
 
-Str
+static Str
 make_optional_header_string(char *s)
 {
     char *p;
@@ -633,6 +638,8 @@ main(int argc, char **argv)
 #ifdef USE_COLOR
 	    else if (!strcmp("-M", argv[i]))
 		useColor = FALSE;
+	    else if (!strcmp("-H", argv[i]))
+		highIntensityColors = TRUE;
 #endif				/* USE_COLOR */
 	    else if (!strcmp("-B", argv[i]))
 		load_bookmark = TRUE;
@@ -906,7 +913,6 @@ main(int argc, char **argv)
 #endif				/* not USE_HISTORY */
 
 #ifdef USE_M17N
-    wtf_init(DocumentCharset, DisplayCharset);
     /*  if (w3m_dump)
      *    WcOption.pre_conv = WC_TRUE;
      */
@@ -1015,9 +1021,11 @@ main(int argc, char **argv)
 	    SearchHeader = search_header;
 	    DefaultType = default_type;
 	    char *url;
+	    int retry = 0;
 
 	    url = load_argv[i];
 	    if (getURLScheme(&url) == SCM_MISSING && !ArgvIsURL)
+	  retry_as_local_file:
 		url = file_to_url(load_argv[i]);
 	    else
 		url = url_encode(conv_from_system(load_argv[i]), NULL, 0);
@@ -1056,6 +1064,10 @@ main(int argc, char **argv)
 		newbuf = loadGeneralFile(url, NULL, NO_REFERER, 0, request);
 	    }
 	    if (newbuf == NULL) {
+		if (ArgvIsURL && !retry) {
+		    retry = 1;
+		    goto retry_as_local_file;
+		}
 		/* FIXME: gettextize? */
 		Strcat(err_msg,
 		       Sprintf("w3m: Can't load %s.\n", load_argv[i]));
@@ -1889,7 +1901,7 @@ dispincsrch(int ch, Str buf, Lineprop *prop)
     return -1;
 }
 
-void
+static void
 isrch(int (*func) (Buffer *, char *), char *prompt)
 {
     char *str;
@@ -1905,7 +1917,7 @@ isrch(int (*func) (Buffer *, char *), char *prompt)
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
 
-void
+static void
 srch(int (*func) (Buffer *, char *), char *prompt)
 {
     char *str;
@@ -2234,7 +2246,7 @@ DEFUN(execsh, EXEC_SHELL SHELL, "Execute shell command and display output")
     if (cmd != NULL && *cmd != '\0') {
 	fmTerm();
 	printf("\n");
-	system(cmd);
+	(void)!system(cmd); /* We do not care about the exit code here! */
 	/* FIXME: gettextize? */
 	printf("\n[Hit any key]");
 	fflush(stdout);
@@ -2582,7 +2594,7 @@ _quitfm(int confirm)
 }
 
 /* Quit */
-DEFUN(quitfm, ABORT EXIT, "Quit at once")
+DEFUN(quitfm, ABORT EXIT, "Quit without confirmation")
 {
     _quitfm(FALSE);
 }
@@ -2784,9 +2796,7 @@ DEFUN(editBf, EDIT, "Edit local source")
     else
 	cmd = myEditor(Editor, shell_quote(fn),
 		       cur_real_linenumber(Currentbuf));
-    fmTerm();
-    system(cmd->ptr);
-    fmInit();
+    exec_cmd(cmd->ptr);
 
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
     reload();
@@ -2807,10 +2817,8 @@ DEFUN(editScr, EDIT_SCREEN, "Edit rendered copy of document")
     }
     saveBuffer(Currentbuf, f, TRUE);
     fclose(f);
-    fmTerm();
-    system(myEditor(Editor, shell_quote(tmpf),
-		    cur_real_linenumber(Currentbuf))->ptr);
-    fmInit();
+    exec_cmd(myEditor(Editor, shell_quote(tmpf),
+		   cur_real_linenumber(Currentbuf))->ptr);
     unlink(tmpf);
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
 }
@@ -3107,10 +3115,8 @@ handleMailto(char *url)
 	if ((pos = strchr(to->ptr, '?')) != NULL)
 	    Strtruncate(to, pos - to->ptr);
     }
-    fmTerm();
-    system(myExtCommand(Mailer, shell_quote(file_unquote(to->ptr)),
+    exec_cmd(myExtCommand(Mailer, shell_quote(file_unquote(to->ptr)),
 			FALSE)->ptr);
-    fmInit();
     displayBuffer(Currentbuf, B_FORCE_REDRAW);
     pushHashHist(URLHist, url);
     return 1;
@@ -6177,9 +6183,9 @@ w3m_exit(int i)
     WSACleanup();
 #endif
 #ifdef HAVE_MKDTEMP
-    if (no_rc_dir && tmp_dir != rc_dir)
-	if (rmdir(tmp_dir) != 0) {
-	    fprintf(stderr, "Can't remove temporary directory (%s)!\n", tmp_dir);
+    if (mkd_tmp_dir)
+	if (rmdir(mkd_tmp_dir) != 0) {
+	    fprintf(stderr, "Can't remove temporary directory (%s)!\n", mkd_tmp_dir);
 	    exit(1);
 	}
 #endif
