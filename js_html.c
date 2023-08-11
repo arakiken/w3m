@@ -104,6 +104,205 @@ dump_error(JSContext *ctx, const char *script)
 }
 
 #ifdef SCRIPT_DEBUG
+static char *
+hook_script(const char *script)
+{
+#if 0
+    const char *beg = script;
+    char *p;
+    Str str = Strnew();
+    while ((p = strchr(beg, ';'))) {
+	Strcat_charp_n(str, beg, p - beg + 1);
+	if (strncmp(p + 1, "base64,", 7) != 0) {
+	    Strcat_charp(str, "\n");
+	}
+        beg = p + 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    const char *beg = script;
+    char *p;
+    const char seq[] = "function(){return m.resolve()}),t.override(\"insert\",function(t,e,n,r){";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(\"TEST3\"); console.log(b);");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    const char *beg = script;
+    char *p;
+    /*const char seq[] = "if(4===u.readyState){var r=m(e,u);0===u.status?n(r):t(r)";*/
+    const char seq[] = "var t=e.headers,n=t&&t[\"content-type\"];";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(\"content-type:\" + n);if (typeof n === \"string\") console.log(JSON.parse(e.body));");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq2[] = "|void 0===I?void 0:I.ok;";
+    str = Strnew();
+    while ((p = strstr(beg, seq2))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
+	Strcat_charp(str, "console.log(\"TEST0\" + ge);");
+        beg = p + sizeof(seq2) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq3[] = "re=e.withheld_text;";
+    str = Strnew();
+    while ((p = strstr(beg, seq3))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq3) - 1);
+	Strcat_charp(str, "console.log(\"TEST1 \" + re + X);");
+        beg = p + sizeof(seq3) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq4[] = "(ue.enrichments={interactive_text_enrichment:{interactive_texts:xe}})}";
+    str = Strnew();
+    while ((p = strstr(beg, seq4))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq4) - 1);
+	Strcat_charp(str, "console.log((0,l.Z)(ue,t,n));console.log(\"TEST2\");");
+        beg = p + sizeof(seq4) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq6[] = "l=this._processStrategy(e,t,r);";
+    str = Strnew();
+    while ((p = strstr(beg, seq6))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq6) - 1);
+	Strcat_charp(str, "console.log(\"TEST2.5\" + this.schema);");
+        beg = p + sizeof(seq6) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq5[] = "we.collaborator_users);";
+    str = Strnew();
+    while ((p = strstr(beg, seq5))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq5) - 1);
+	Strcat_charp(str, "console.log(\"TEST3 \" + K);try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }");
+        beg = p + sizeof(seq5) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq7[] = "var l=n.entries.filter(Boolean);";
+    str = Strnew();
+    while ((p = strstr(beg, seq7))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq7) - 1);
+	Strcat_charp(str, "console.log(\"TEST4\" + n.type);");
+        beg = p + sizeof(seq7) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq8[] = "void 0};const Fe=function(e){";
+    str = Strnew();
+    while ((p = strstr(beg, seq8))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq8) - 1);
+	Strcat_charp(str, "console.log(\"TEST5\");");
+        beg = p + sizeof(seq8) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+    beg = script;
+    const char seq9[] = "t.renderDOM=function(e,t,r){";
+    str = Strnew();
+    while ((p = strstr(beg, seq9))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq9) - 1);
+	Strcat_charp(str, "console.log(\"TEST6\");");
+        beg = p + sizeof(seq9) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    /* frikaetter.com (0xde0b6b3a7640080.toFixed(0) => invalid number literal. */
+    const char *beg = script;
+    char *p;
+    const char seq[] = "0xde0b6b3a7640080";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "==0xde0b6b3a7640080||1000000000000000128.");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    /* www.pref.hiroshima.lg.jp */
+    const char *beg = script;
+    char *p;
+    const char seq[] = "decodeURIComponent(t[1]).replace(/\\+/g,\" \"));";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "if (!r.pids) { r.pids = \"\"; }");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 0
+    /* for facebook.com */
+    const char *beg = script;
+    char *p;
+    const char seq[] = "if(g&&b){var c=b.childNodes;";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "c.length = 0;");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#elif 1
+    /* for acid3 tests */
+    const char *beg = script;
+    char *p;
+    const char seq[] = "setTimeout(update, delay);";
+    Str str = Strnew();
+    while ((p = strstr(beg, seq))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
+	Strcat_charp(str, "console.log(log);/*dump_element(document, \"\");*/");
+        beg = p + sizeof(seq) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+
+#if 0
+    beg = script;
+    const char seq2[] = "var i = doc.createNodeIterator(doc.documentElement, 0xFFFFFFFF, test, true);";
+    str = Strnew();
+    while ((p = strstr(beg, seq2))) {
+	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
+	Strcat_charp(str, "console.log(i.nextNode()); console.log(doc.documentElement);");
+        beg = p + sizeof(seq2) - 1;
+    }
+    Strcat_charp(str, beg);
+    script = str->ptr;
+#endif
+#endif
+
+    return (char*)script;
+}
+
 static JSValue
 backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
 {
@@ -120,6 +319,7 @@ backtrace(JSContext *ctx, const char *script, JSValue eval_ret)
     return eval_ret;
 }
 #else
+#define hook_script(script) (script)
 #define backtrace(ctx, script, eval_ret) (eval_ret)
 #endif
 
@@ -2461,9 +2661,11 @@ node_text_content_set(JSContext *ctx, JSValueConst jsThis, JSValueConst val)
 
 #ifdef USE_LIBXML2
 #ifdef DOM_DEBUG
-    FILE *fp = fopen("domlog.txt", "a");
-    fprintf(fp, "=== innerHTML: %s\n", JS_ToCString(ctx, val));
-    fclose(fp);
+    {
+	FILE *fp = fopen("domlog.txt", "a");
+	fprintf(fp, "=== innerHTML: %s\n", JS_ToCString(ctx, val));
+	fclose(fp);
+    }
 #endif
 
     str = JS_ToCString(ctx, val);
@@ -4284,7 +4486,7 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 
 		interval_callbacks[i].is_running = 1;
 		if (JS_IsString(interval_callbacks[i].func)) {
-		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
+		    const char *script = hook_script(JS_ToCString(ctx, interval_callbacks[i].func));
 		    val = backtrace(ctx, script,
 				    JS_Eval(ctx, script,
 					    strlen(script), "<input>", EVAL_FLAG));
@@ -4444,8 +4646,20 @@ js_html_init(Buffer *buf)
 	"  }"
 	"  nextNode() {"
 	"    let ret;"
-	"    while (true) {"
+	"    let found = false;"
+	"    while (!found) {"
 	"      ret = this.next;"
+	"      if (!ret) {"
+	"        break;"
+	"      }"
+	"      /*"
+	"       * this.filter() must be called before updating this.next."
+	"       * (see http://acid3.acidtests.org/ test 1)"
+	"       */"
+	"      if (!this.filter || typeof this.filter !== \"function\" ||"
+	"          this.filter(ret) == NodeFilter.FILTER_ACCEPT) {"
+	"        found = true;"
+	"      }"
 	"      if (this.next.children.length > 0) {"
 	"        this.next = this.next.children[0];"
 	"      } else if (this.next.nextSibling) {"
@@ -4453,11 +4667,37 @@ js_html_init(Buffer *buf)
 	"      } else {"
 	"        this.next = this.next.parentNode;"
 	"      }"
-	"      if (!ret || !this.filter || typeof this.filter !== \"function\" ||"
-	"          this.filter(ret) == NodeFilter.FILTER_ACCEPT) {"
+	"    }"
+	"    this.previous = ret;"
+	"    return ret;"
+	"  }"
+	"  previousNode() {"
+	"    let ret;"
+	"    let found = false;"
+	"    while (!found) {"
+	"      ret = this.previous;"
+	"      if (!ret) {"
 	"        break;"
 	"      }"
+	"      /*"
+	"       * this.filter() must be called before updating this.next."
+	"       * (see http://acid3.acidtests.org/ test 1)"
+	"       */"
+	"      if (!this.filter || typeof this.filter !== \"function\" ||"
+	"          this.filter(ret) == NodeFilter.FILTER_ACCEPT) {"
+	"        found = true;"
+	"      }"
+	"      if (this.previous.previousSibling) {"
+	"        let prev = this.previous.previousSibling;"
+	"        while (prev.children.length > 0) {"
+	"          prev = prev.children[prev.children.length - 1];"
+	"        }"
+	"        this.previous = prev;"
+	"      } else {"
+	"        this.previous = this.previous.parentNode;"
+	"      }"
 	"    }"
+	"    this.next = ret;"
 	"    return ret;"
 	"  }"
 	"};"
@@ -6056,206 +6296,15 @@ js_html_final(JSContext *ctx) {
 }
 
 void
-js_eval(JSContext *ctx, char *script) {
+js_eval(JSContext *ctx, char *script)
+{
     JSValue ret = js_eval2(ctx, script);
     JS_FreeValue(ctx, ret);
 }
 
 JSValue
-js_eval2(JSContext *ctx, char *script) {
-#if 0
-    char *beg = script;
-    char *p;
-    Str str = Strnew();
-    while ((p = strchr(beg, ';'))) {
-	Strcat_charp_n(str, beg, p - beg + 1);
-	if (strncmp(p + 1, "base64,", 7) != 0) {
-	    Strcat_charp(str, "\n");
-	}
-        beg = p + 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    char *beg = script;
-    char *p;
-    const char seq[] = "return function(c,d,e){";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"TEST3\" + e.prototype);");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    char *beg = script;
-    char *p;
-    /*const char seq[] = "if(4===u.readyState){var r=m(e,u);0===u.status?n(r):t(r)";*/
-    const char seq[] = "var t=e.headers,n=t&&t[\"content-type\"];";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(\"content-type:\" + n);if (typeof n === \"string\") console.log(JSON.parse(e.body));");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq2[] = "|void 0===I?void 0:I.ok;";
-    str = Strnew();
-    while ((p = strstr(beg, seq2))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "console.log(\"TEST0\" + ge);");
-        beg = p + sizeof(seq2) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq3[] = "re=e.withheld_text;";
-    str = Strnew();
-    while ((p = strstr(beg, seq3))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq3) - 1);
-	Strcat_charp(str, "console.log(\"TEST1 \" + re + X);");
-        beg = p + sizeof(seq3) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq4[] = "(ue.enrichments={interactive_text_enrichment:{interactive_texts:xe}})}";
-    str = Strnew();
-    while ((p = strstr(beg, seq4))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq4) - 1);
-	Strcat_charp(str, "console.log((0,l.Z)(ue,t,n));console.log(\"TEST2\");");
-        beg = p + sizeof(seq4) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq6[] = "l=this._processStrategy(e,t,r);";
-    str = Strnew();
-    while ((p = strstr(beg, seq6))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq6) - 1);
-	Strcat_charp(str, "console.log(\"TEST2.5\" + this.schema);");
-        beg = p + sizeof(seq6) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq5[] = "we.collaborator_users);";
-    str = Strnew();
-    while ((p = strstr(beg, seq5))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq5) - 1);
-	Strcat_charp(str, "console.log(\"TEST3 \" + K);try { throw new Error(\"error\"); } catch (e) { console.log(e.stack); }");
-        beg = p + sizeof(seq5) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq7[] = "var l=n.entries.filter(Boolean);";
-    str = Strnew();
-    while ((p = strstr(beg, seq7))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq7) - 1);
-	Strcat_charp(str, "console.log(\"TEST4\" + n.type);");
-        beg = p + sizeof(seq7) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq8[] = "void 0};const Fe=function(e){";
-    str = Strnew();
-    while ((p = strstr(beg, seq8))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq8) - 1);
-	Strcat_charp(str, "console.log(\"TEST5\");");
-        beg = p + sizeof(seq8) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-    beg = script;
-    const char seq9[] = "t.renderDOM=function(e,t,r){";
-    str = Strnew();
-    while ((p = strstr(beg, seq9))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq9) - 1);
-	Strcat_charp(str, "console.log(\"TEST6\");");
-        beg = p + sizeof(seq9) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    /* frikaetter.com (0xde0b6b3a7640080.toFixed(0) => invalid number literal. */
-    char *beg = script;
-    char *p;
-    const char seq[] = "0xde0b6b3a7640080";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "==0xde0b6b3a7640080||1000000000000000128.");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    /* www.pref.hiroshima.lg.jp */
-    char *beg = script;
-    char *p;
-    const char seq[] = "decodeURIComponent(t[1]).replace(/\\+/g,\" \"));";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "if (!r.pids) { r.pids = \"\"; }");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    /* for facebook.com */
-    char *beg = script;
-    char *p;
-    const char seq[] = "if(g&&b){var c=b.childNodes;";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "c.length = 0;");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#elif 0
-    /* for acid3 tests */
-    char *beg = script;
-    char *p;
-    const char seq[] = "setTimeout(update, delay);";
-    Str str = Strnew();
-    while ((p = strstr(beg, seq))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq) - 1);
-	Strcat_charp(str, "console.log(log);/*dump_element(document, \"\");*/");
-        beg = p + sizeof(seq) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-
-#if 0
-    beg = script;
-    const char seq2[] = "doc.close();";
-    str = Strnew();
-    while ((p = strstr(beg, seq2))) {
-	Strcat_charp_n(str, beg, p - beg + sizeof(seq2) - 1);
-	Strcat_charp(str, "dump_tree(doc, \"\");");
-        beg = p + sizeof(seq2) - 1;
-    }
-    Strcat_charp(str, beg);
-    script = str->ptr;
-#endif
-#endif
-
+js_eval2(JSContext *ctx, char *script)
+{
     if (strncmp(script, "func_id:", 8) == 0) {
 	int idx = atoi(script + 8);
 	CtxState *ctxstate = JS_GetContextOpaque(ctx);
@@ -6269,6 +6318,8 @@ js_eval2(JSContext *ctx, char *script) {
 							 JS_UNDEFINED, 0, NULL));
 	}
     }
+
+    script = hook_script(script);
 
     return backtrace(ctx, script,
 		     JS_Eval(ctx, script, strlen(script), "<input>", EVAL_FLAG));
