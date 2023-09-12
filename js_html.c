@@ -4490,11 +4490,12 @@ js_trigger_interval(Buffer *buf, int msec, void (*update_forms)(Buffer*, void*))
 
 		interval_callbacks[i].is_running = 1;
 		if (JS_IsString(interval_callbacks[i].func)) {
-		    const char *script = hook_script(JS_ToCString(ctx, interval_callbacks[i].func));
-		    val = backtrace(ctx, script,
-				    JS_Eval(ctx, script,
-					    strlen(script), "<input>", EVAL_FLAG));
+		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
+		    const char *script2 = hook_script(script);
 		    JS_FreeCString(ctx, script);
+		    val = backtrace(ctx, script2,
+				    JS_Eval(ctx, script2,
+					    strlen(script2), "<input>", EVAL_FLAG));
 		} else {
 #ifdef SCRIPT_DEBUG
 		    const char *script = JS_ToCString(ctx, interval_callbacks[i].func);
