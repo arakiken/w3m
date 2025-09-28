@@ -143,6 +143,8 @@ newStrStream(Str s)
 }
 
 #ifdef USE_SSL
+#include <sys/socket.h> /* setsockopt */
+
 InputStream
 newSSLStream(SSL * ssl, int sock)
 {
@@ -157,6 +159,21 @@ newSSLStream(SSL * ssl, int sock)
     stream->ssl.handle->sock = sock;
     stream->ssl.read = (int (*)())ssl_read;
     stream->ssl.close = (void (*)())ssl_close;
+
+#ifdef SO_RCVTIMEO
+    /*
+     * I don't know why but SSL_read() blocks in reading
+     * https://www.pref.hiroshima.lg.jp/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3&ns=1&cb=1967530707
+     * in accessing https://www.pref.hiroshima.lg.jp
+     *
+     * (uncompress_stream() -> ISread_n() -> do_update() -> SSL_read() [blocked]
+     */
+    {
+	struct timeval tv = { 1, 0 };
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv));
+    }
+#endif
+
     return stream;
 }
 #endif

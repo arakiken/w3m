@@ -4412,7 +4412,7 @@ load_script_src(char *url, ParsedURL *baseURL)
     if (f) {
 	char buf[256];
 	int n;
-	while (n = fread(buf, sizeof(char), 256, f)) {
+	while ((n = fread(buf, sizeof(char), 256, f)) > 0) {
 	    Strcat_charp_n(str, buf, n);
 	}
 	fclose(f);
